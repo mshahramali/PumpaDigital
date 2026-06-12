@@ -2,8 +2,22 @@
 // Deploy to: /api/webhook.js in your GitHub repo
 
 const VERIFY_TOKEN = "pumpa_webhook_2026";
+const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbyMtzAnXg62RPMa9jcc5vaNiyanQCOgZ88Ob06InGY_Pz_O6XSKuZLc6Zv_COYoc6aKSg/exec";
+const SHEET_SECRET = "pumpa_secret_2026";
 
-export default function handler(req, res) {
+async function saveToSheet(phone, message, type = "incoming") {
+  try {
+    await fetch(GOOGLE_SHEET_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ secret: SHEET_SECRET, phone, message, type }),
+    });
+  } catch (err) {
+    console.error("Failed to save to Google Sheet:", err);
+  }
+}
+
+export default async function handler(req, res) {
   
   // ── GET: Webhook Verification (Meta calls this once to verify)
   if (req.method === "GET") {
@@ -30,8 +44,8 @@ export default function handler(req, res) {
 
           // Incoming messages
           if (value.messages) {
-            value.messages.forEach((message) => {
-              const from = message.from; // Customer's phone number
+            value.messages.forEach(async (message) => {
+              const from = message.from;
               const msgType = message.type;
               
               let text = "";
@@ -41,9 +55,8 @@ export default function handler(req, res) {
 
               console.log(`New message from ${from}: ${text}`);
 
-              // ── AUTO-REPLY LOGIC ──
-              // You can add auto-reply here later
-              // For now just log incoming messages
+              // ── SAVE TO GOOGLE SHEET ──
+              await saveToSheet(from, text, "incoming");
             });
           }
 
