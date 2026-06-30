@@ -2275,7 +2275,7 @@ async function saveToSheet(phone, message, type = 'incoming') {
   try {
     await fetch(SHEET_API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ secret: SHEET_SECRET, phone, message, type })
     });
   } catch(e) { console.error('Sheet save error:', e); }
