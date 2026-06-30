@@ -1752,6 +1752,7 @@ function showPage(name, el) {
     main.style.overflow = 'hidden';
     main.style.height = '100vh';
     inboxRenderConvList();
+    inboxLoadConvs();
   } else {
     main.style.padding = '32px';
     main.style.overflow = '';
@@ -2339,8 +2340,11 @@ async function inboxFetchFromSheet() {
 
 function inboxLoadConvs() {
   inboxFetchFromSheet();
-  // Poll every 10 seconds for new messages
-  setInterval(inboxFetchFromSheet, 10000);
+  // Poll every 10 seconds for new messages — only start one interval, ever
+  if (!window._inboxPollStarted) {
+    window._inboxPollStarted = true;
+    setInterval(inboxFetchFromSheet, 10000);
+  }
 }
 
 function inboxAddMessage(phone, msg) {
