@@ -218,11 +218,11 @@
 // ===== SUPABASE INIT =====
 const SUPABASE_URL = 'https://dpeszhbdgxevlkrfllrc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_gZj05PTTPix9SEKEwBXo5Q_W8YGBky2';
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ===== IF ALREADY LOGGED IN, SKIP STRAIGHT TO APP =====
 (async () => {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await sb.auth.getSession();
   if (session) {
     window.location.href = 'app.html';
   }
@@ -274,7 +274,7 @@ async function handleSignIn() {
   btn.textContent = 'Signing in...';
   hideMsg();
 
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
 
   btn.disabled = false;
   btn.textContent = 'Sign In →';
@@ -321,7 +321,7 @@ async function handleSignUp() {
   btn.textContent = 'Creating account...';
   hideMsg();
 
-  const { data, error } = await supabase.auth.signUp({
+  const { data, error } = await sb.auth.signUp({
     email,
     password,
     options: {
@@ -366,7 +366,7 @@ async function handleForgotPassword() {
   btn.textContent = 'Sending...';
   hideMsg();
 
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+  const { error } = await sb.auth.resetPasswordForEmail(email, {
     redirectTo: window.location.origin + '/login.html'
   });
 
