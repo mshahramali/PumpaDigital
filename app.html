@@ -1724,7 +1724,7 @@ let state = {
   contacts: [],
   campaigns: [],
   messages: JSON.parse(localStorage.getItem('pumpa_messages') || '[]'),
-  settings: JSON.parse(localStorage.getItem('pumpa_settings') || '{}'),
+  settings: {},
   loggedIn: false,
   profile: null   // { business_id, role, full_name } — filled in after real auth check
 };
@@ -1777,6 +1777,7 @@ async function checkAuthAndInit() {
   document.getElementById('app').style.display = 'block';
   await loadContactsFromSupabase();
   await loadCampaignsFromSupabase();
+  await loadSettingsFromSupabase();
   initApp();
 }
 
@@ -2362,14 +2363,55 @@ function renderMessageLog() {
   `).join('');
 }
 
-// ===== SETTINGS =====
-function saveSettings() {
+// ===== SETTINGS: SUPABASE-BACKED (tied to business, not browser) =====
+async function loadSettingsFromSupabase() {
+  if (state.profile.role === 'admin') {
+    state.settings = {};
+    return;
+  }
+  const { data, error } = await sb
+    .from('businesses')
+    .select('whatsapp_access_token, whatsapp_phone_number_id, whatsapp_waba_id')
+    .eq('id', state.profile.business_id)
+    .single();
+
+  if (error || !data) {
+    state.settings = {};
+    return;
+  }
+
   state.settings = {
-    token: document.getElementById('cfg-token').value.trim(),
-    phoneId: document.getElementById('cfg-phone-id').value.trim(),
-    wabaId: document.getElementById('cfg-waba').value.trim()
+    token: data.whatsapp_access_token || '',
+    phoneId: data.whatsapp_phone_number_id || '',
+    wabaId: data.whatsapp_waba_id || ''
   };
-  localStorage.setItem('pumpa_settings', JSON.stringify(state.settings));
+}
+
+async function saveSettings() {
+  if (state.profile.role === 'admin') {
+    showToast('Error', 'Admin accounts cannot save WhatsApp credentials directly.', true);
+    return;
+  }
+
+  const token = document.getElementById('cfg-token').value.trim();
+  const phoneId = document.getElementById('cfg-phone-id').value.trim();
+  const wabaId = document.getElementById('cfg-waba').value.trim();
+
+  const { error } = await sb
+    .from('businesses')
+    .update({
+      whatsapp_access_token: token,
+      whatsapp_phone_number_id: phoneId,
+      whatsapp_waba_id: wabaId
+    })
+    .eq('id', state.profile.business_id);
+
+  if (error) {
+    showToast('Error', 'Could not save credentials: ' + error.message, true);
+    return;
+  }
+
+  state.settings = { token, phoneId, wabaId };
   loadSettingsDisplay();
   showToast('Saved', 'API credentials saved successfully');
 }
