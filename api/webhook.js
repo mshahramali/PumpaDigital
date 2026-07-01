@@ -1,20 +1,59 @@
-// PUMPA Digital — WhatsApp Webhook
+// PUMPA Digital — WhatsApp Webhook (Supabase version)
 const VERIFY_TOKEN = "pumpa_webhook_2026";
-const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbyMtzAnXg62RPMa9jcc5vaNiyanQCOgZ88Ob06InGY_Pz_O6XSKuZLc6Zv_COYoc6aKSg/exec";
-const SHEET_SECRET = "pumpa_secret_2026";
+const SUPABASE_URL = "https://dpeszhbdgxevlkrfllrc.supabase.co";
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
-async function saveToSheet(phone, message, type = "incoming") {
+async function saveToSupabase(phone, message, type = "incoming", phoneNumberId = null) {
   try {
-    const cleanMessage = String(message).replace(/\n/g, ' ').replace(/\r/g, '').trim();
-    const response = await fetch(GOOGLE_SHEET_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ secret: SHEET_SECRET, phone, message: cleanMessage, type }),
+    const body = {
+      phone: String(phone),
+      message: String(message).replace(/\n/g, ' ').replace(/\r/g, '').trim(),
+      type,
+      phone_number_id: phoneNumberId || null
+    };
+
+    // Find which business owns this phone_number_id
+    let businessId = null;
+    if (phoneNumberId && SUPABASE_SERVICE_KEY) {
+      const lookupRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/businesses?phone_number_id=eq.${phoneNumberId}&select=id&limit=1`,
+        {
+          headers: {
+            'apikey': SUPABASE_SERVICE_KEY,
+            'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+          }
+        }
+      );
+      const businesses = await lookupRes.json();
+      if (businesses && businesses[0]) businessId = businesses[0].id;
+    }
+
+    const insertRes = await fetch(`${SUPABASE_URL}/rest/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_SERVICE_KEY,
+        'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal'
+      },
+      body: JSON.stringify({
+        business_id: businessId,
+        phone: String(phone),
+        message: String(message).replace(/\n/g, ' ').replace(/\r/g, '').trim(),
+        type,
+        phone_number_id: phoneNumberId || null,
+        read: false
+      })
     });
-    const result = await response.text();
-    console.log(`Sheet save result: ${result}`);
+
+    if (!insertRes.ok) {
+      const err = await insertRes.text();
+      console.error('Supabase insert error:', err);
+    } else {
+      console.log(`Message saved to Supabase: ${type} from ${phone}`);
+    }
   } catch (err) {
-    console.error("Failed to save to Google Sheet:", err.message);
+    console.error("Failed to save to Supabase:", err.message);
   }
 }
 
@@ -40,6 +79,7 @@ export default async function handler(req, res) {
       for (const entry of body.entry || []) {
         for (const change of entry.changes || []) {
           const value = change.value;
+          const phoneNumberId = value.metadata?.phone_number_id || null;
 
           // Incoming messages
           if (value.messages) {
@@ -59,7 +99,7 @@ export default async function handler(req, res) {
                 text = `[${msgType}]`;
               }
               console.log(`New message from ${from}: ${text}`);
-              await saveToSheet(from, text, "incoming");
+              await saveToSupabase(from, text, "incoming", phoneNumberId);
             }
           }
 
