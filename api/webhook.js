@@ -3,18 +3,16 @@ const VERIFY_TOKEN = "pumpa_webhook_2026";
 const SUPABASE_URL = "https://dpeszhbdgxevlkrfllrc.supabase.co";
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
-async function saveToSupabase(phone, message, type = "incoming", phoneNumberId = null) {
+async function saveToSupabase(phone, message, direction = "inbound", phoneNumberId = null) {
   try {
-    const body = {
-      phone: String(phone),
-      message: String(message).replace(/\n/g, ' ').replace(/\r/g, '').trim(),
-      type,
-      phone_number_id: phoneNumberId || null
-    };
+    if (!SUPABASE_SERVICE_KEY) {
+      console.error("SUPABASE_SERVICE_KEY not set");
+      return;
+    }
 
     // Find which business owns this phone_number_id
     let businessId = null;
-    if (phoneNumberId && SUPABASE_SERVICE_KEY) {
+    if (phoneNumberId) {
       const lookupRes = await fetch(
         `${SUPABASE_URL}/rest/v1/businesses?phone_number_id=eq.${phoneNumberId}&select=id&limit=1`,
         {
@@ -38,11 +36,13 @@ async function saveToSupabase(phone, message, type = "incoming", phoneNumberId =
       },
       body: JSON.stringify({
         business_id: businessId,
-        phone: String(phone),
-        message: String(message).replace(/\n/g, ' ').replace(/\r/g, '').trim(),
-        type,
+        contact_id: null,
+        direction: direction,
+        content: String(message).replace(/\n/g, ' ').replace(/\r/g, '').trim(),
         phone_number_id: phoneNumberId || null,
-        read: false
+        phone: String(phone),
+        status: 'received',
+        wa_message_id: null
       })
     });
 
@@ -50,7 +50,7 @@ async function saveToSupabase(phone, message, type = "incoming", phoneNumberId =
       const err = await insertRes.text();
       console.error('Supabase insert error:', err);
     } else {
-      console.log(`Message saved to Supabase: ${type} from ${phone}`);
+      console.log(`Message saved: ${direction} from ${phone}`);
     }
   } catch (err) {
     console.error("Failed to save to Supabase:", err.message);
@@ -81,29 +81,21 @@ export default async function handler(req, res) {
           const value = change.value;
           const phoneNumberId = value.metadata?.phone_number_id || null;
 
-          // Incoming messages
           if (value.messages) {
             for (const message of value.messages) {
               const from = message.from;
               const msgType = message.type;
               let text = "";
-              if (msgType === "text") {
-                text = message.text?.body || "";
-              } else if (msgType === "image") {
-                text = "[Image]";
-              } else if (msgType === "audio") {
-                text = "[Audio]";
-              } else if (msgType === "document") {
-                text = "[Document]";
-              } else {
-                text = `[${msgType}]`;
-              }
+              if (msgType === "text") text = message.text?.body || "";
+              else if (msgType === "image") text = "[Image]";
+              else if (msgType === "audio") text = "[Audio]";
+              else if (msgType === "document") text = "[Document]";
+              else text = `[${msgType}]`;
               console.log(`New message from ${from}: ${text}`);
-              await saveToSupabase(from, text, "incoming", phoneNumberId);
+              await saveToSupabase(from, text, "inbound", phoneNumberId);
             }
           }
 
-          // Status updates
           if (value.statuses) {
             for (const status of value.statuses) {
               console.log(`Message ${status.id} status: ${status.status}`);
