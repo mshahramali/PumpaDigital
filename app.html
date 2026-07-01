@@ -2487,12 +2487,13 @@ function inboxFormatMsgTime(ts) {
   return new Date(ts).toLocaleTimeString('en-PK', { hour:'2-digit', minute:'2-digit' });
 }
 
-function inboxSaveConvs() {
-  // Google Sheet is now the source of truth — no localStorage needed
-}
+// ===== INBOX — SUPABASE VERSION =====
+// Replaces Google Sheet with Supabase messages table
+// Each client only sees messages where business_id matches their own
 
-const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbyMtzAnXg62RPMa9jcc5vaNiyanQCOgZ88Ob06InGY_Pz_O6XSKuZLc6Zv_COYoc6aKSg/exec';
-const SHEET_SECRET = 'pumpa_secret_2026';
+function inboxSaveConvs() {
+  // Supabase is now the source of truth — no localStorage needed
+}
 
 const inboxState = {
   convs: {},
@@ -2502,58 +2503,77 @@ const inboxState = {
   lastFetch: 0
 };
 
-// Save outgoing message directly to Google Sheet from browser
-async function saveToSheet(phone, message, type = 'incoming') {
+// Save outgoing message to Supabase
+async function saveToSheet(phone, message, type = 'outgoing') {
   try {
-    await fetch(SHEET_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ secret: SHEET_SECRET, phone, message, type })
+    const { data: profile } = await sb.from('profiles').select('business_id').single();
+    if (!profile?.business_id) return;
+
+    const { data: biz } = await sb.from('businesses').select('phone_number_id').eq('id', profile.business_id).single();
+
+    await sb.from('messages').insert({
+      business_id: profile.business_id,
+      phone: String(phone),
+      message: String(message),
+      type,
+      phone_number_id: biz?.phone_number_id || null,
+      read: true
     });
-  } catch(e) { console.error('Sheet save error:', e); }
+  } catch(e) {
+    console.error('Supabase save error:', e);
+  }
 }
 
-// Load all messages from Google Sheet
+// Load all messages from Supabase for this business
 async function inboxFetchFromSheet() {
   try {
-    const res = await fetch(SHEET_API_URL + '?t=' + Date.now(), {
-      method: 'GET',
-      cache: 'no-store',
-      redirect: 'follow'
-    });
-    const data = await res.json();
-    if (!data.messages) return;
-    
-    // Rebuild convs from sheet data
+    const { data: profile } = await sb.from('profiles').select('business_id, role').single();
+    if (!profile) return;
+
+    let query = sb.from('messages').select('*').order('created_at', { ascending: true });
+
+    // Admin sees all; client sees only their own business
+    if (profile.role !== 'admin') {
+      if (!profile.business_id) return;
+      query = query.eq('business_id', profile.business_id);
+    } else if (profile.role === 'admin') {
+      // Admin: if a specific business is selected in view, filter by that
+      // Otherwise show all — admin inbox shows everything
+    }
+
+    const { data: messages, error } = await query;
+    if (error) { console.error('Supabase fetch error:', error); return; }
+    if (!messages || messages.length === 0) return;
+
     const newConvs = {};
-    data.messages.forEach(row => {
+    messages.forEach(row => {
       const phone = String(row.phone);
-      const ts = new Date(row.timestamp).getTime();
+      const ts = new Date(row.created_at).getTime();
       if (!newConvs[phone]) {
         newConvs[phone] = {
-          name: 'PK +' + phone,
+          name: '+' + phone,
           messages: [],
           unread: 0,
           lastMsg: '',
           lastTs: 0,
-          firstTs: ts
+          firstTs: ts,
+          business_id: row.business_id
         };
       }
       newConvs[phone].messages.push({
         type: row.type || 'incoming',
         text: row.message || '',
-        ts: ts
+        ts
       });
       newConvs[phone].lastMsg = (row.message || '').slice(0, 45);
       newConvs[phone].lastTs = ts;
     });
-    
-    // Preserve unread counts for existing convs
+
+    // Preserve unread counts
     Object.keys(newConvs).forEach(phone => {
       if (inboxState.convs[phone]) {
         newConvs[phone].unread = inboxState.convs[phone].unread || 0;
       }
-      // Mark new incoming messages as unread
       const oldCount = inboxState.convs[phone]?.messages?.length || 0;
       const newCount = newConvs[phone].messages.length;
       if (newCount > oldCount && phone !== inboxState.activePhone) {
@@ -2566,19 +2586,17 @@ async function inboxFetchFromSheet() {
     inboxUpdateBadge();
     if (inboxState.activePhone) inboxRenderMessages(inboxState.activePhone);
   } catch(e) {
-    console.error('Sheet fetch error:', e);
+    console.error('Inbox fetch error:', e);
   }
 }
 
 function inboxLoadConvs() {
   inboxFetchFromSheet();
-  // Poll every 10 seconds for new messages — only start one interval, ever
   if (!window._inboxPollStarted) {
     window._inboxPollStarted = true;
     setInterval(inboxFetchFromSheet, 10000);
   }
 }
-
 function inboxAddMessage(phone, msg) {
   if (!inboxState.convs[phone]) {
     inboxState.convs[phone] = {
