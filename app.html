@@ -1700,7 +1700,7 @@
 <script>
 // ===== STATE =====
 let state = {
-  contacts: JSON.parse(localStorage.getItem('pumpa_contacts') || '[]'),
+  contacts: [],
   campaigns: JSON.parse(localStorage.getItem('pumpa_campaigns') || '[]'),
   messages: JSON.parse(localStorage.getItem('pumpa_messages') || '[]'),
   settings: JSON.parse(localStorage.getItem('pumpa_settings') || '{}'),
@@ -1754,6 +1754,7 @@ async function checkAuthAndInit() {
 
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
+  await loadContactsFromSupabase();
   initApp();
 }
 
@@ -1915,37 +1916,88 @@ function openAddContact() {
   document.getElementById('modal-contact').classList.add('open');
 }
 
-function addContact() {
+// ===== CONTACTS: SUPABASE-BACKED =====
+async function loadContactsFromSupabase() {
+  if (state.profile.role === 'admin') {
+    // Admin isn't tied to a single business yet — business switcher is a future feature
+    state.contacts = [];
+    return;
+  }
+  const { data, error } = await sb
+    .from('contacts')
+    .select('*')
+    .eq('business_id', state.profile.business_id)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    showToast('Error', 'Could not load contacts', true);
+    state.contacts = [];
+    return;
+  }
+
+  state.contacts = data.map(row => ({
+    id: row.id,
+    name: row.name,
+    phone: row.whatsapp_number,
+    email: row.email || '',
+    dob: row.date_of_birth || '',
+    source: row.source || 'Manual',
+    added: row.created_at
+  }));
+}
+
+async function addContact() {
   const name = document.getElementById('c-name').value.trim();
   const phone = document.getElementById('c-phone').value.trim();
   if (!name || !phone) { showToast('Error', 'Name and phone are required', true); return; }
 
-  const contact = {
-    id: Date.now().toString(),
-    name,
-    phone: phone.replace(/[\s\-\+]/g, ''),
-    email: document.getElementById('c-email').value.trim(),
-    dob: document.getElementById('c-dob').value,
-    source: document.getElementById('c-source').value,
-    added: new Date().toISOString()
-  };
+  if (state.profile.role === 'admin') {
+    showToast('Error', 'Admin accounts cannot add contacts directly.', true);
+    return;
+  }
 
-  state.contacts.push(contact);
-  saveContacts();
+  const cleanPhone = phone.replace(/[\s\-\+]/g, '');
+  const email = document.getElementById('c-email').value.trim();
+  const dob = document.getElementById('c-dob').value;
+  const source = document.getElementById('c-source').value;
+
+  const { data, error } = await sb
+    .from('contacts')
+    .insert({
+      business_id: state.profile.business_id,
+      name,
+      whatsapp_number: cleanPhone,
+      email,
+      date_of_birth: dob || null,
+      source
+    })
+    .select()
+    .single();
+
+  if (error) {
+    showToast('Error', 'Could not save contact: ' + error.message, true);
+    return;
+  }
+
+  state.contacts.unshift({
+    id: data.id, name: data.name, phone: data.whatsapp_number,
+    email: data.email || '', dob: data.date_of_birth || '',
+    source: data.source || 'Manual', added: data.created_at
+  });
+
   renderContacts();
   updateDashboard();
   renderBirthdays();
   closeModal('modal-contact');
   showToast('Contact Added', `${name} added successfully`);
-
-  // Add to activity
-  addActivity(`New contact added: ${name} (${phone})`);
+  addActivity(`New contact added: ${name} (${cleanPhone})`);
 }
 
-function deleteContact(id) {
+async function deleteContact(id) {
   if (!confirm('Delete this contact?')) return;
+  const { error } = await sb.from('contacts').delete().eq('id', id);
+  if (error) { showToast('Error', 'Could not delete contact', true); return; }
   state.contacts = state.contacts.filter(c => c.id !== id);
-  saveContacts();
   renderContacts();
   updateDashboard();
   showToast('Deleted', 'Contact removed');
@@ -1960,10 +2012,6 @@ function quickMessage(phone, name) {
   loadSettingsDisplay();
 }
 
-function saveContacts() {
-  localStorage.setItem('pumpa_contacts', JSON.stringify(state.contacts));
-}
-
 function exportCSV() {
   if (state.contacts.length === 0) { showToast('Error', 'No contacts to export', true); return; }
   const headers = ['Name', 'Phone', 'Email', 'Birthday', 'Source', 'Added'];
@@ -1976,30 +2024,57 @@ function exportCSV() {
   showToast('Exported', `${state.contacts.length} contacts exported`);
 }
 
-function importCSV(e) {
+async function importCSV(e) {
   const file = e.target.files[0];
   if (!file) return;
+
+  if (state.profile.role === 'admin') {
+    showToast('Error', 'Admin accounts cannot import contacts directly.', true);
+    e.target.value = '';
+    return;
+  }
+
   const reader = new FileReader();
-  reader.onload = ev => {
+  reader.onload = async ev => {
     const lines = ev.target.result.split('\n').filter(l => l.trim());
-    let added = 0;
+    const rows = [];
     lines.slice(1).forEach(line => {
       const cols = line.split(',').map(c => c.replace(/"/g,'').trim());
       if (cols[0] && cols[1]) {
-        state.contacts.push({
-          id: Date.now().toString() + Math.random(),
-          name: cols[0], phone: cols[1].replace(/[\s\-\+]/g,''),
-          email: cols[2]||'', dob: cols[3]||'',
-          source: 'CSV Import', added: new Date().toISOString()
+        rows.push({
+          business_id: state.profile.business_id,
+          name: cols[0],
+          whatsapp_number: cols[1].replace(/[\s\-\+]/g,''),
+          email: cols[2] || '',
+          date_of_birth: cols[3] || null,
+          source: 'CSV Import'
         });
-        added++;
       }
     });
-    saveContacts();
+
+    if (rows.length === 0) {
+      showToast('Error', 'No valid rows found in CSV', true);
+      return;
+    }
+
+    const { data, error } = await sb.from('contacts').insert(rows).select();
+    if (error) {
+      showToast('Error', 'Import failed: ' + error.message, true);
+      return;
+    }
+
+    data.forEach(row => {
+      state.contacts.unshift({
+        id: row.id, name: row.name, phone: row.whatsapp_number,
+        email: row.email || '', dob: row.date_of_birth || '',
+        source: row.source || 'CSV Import', added: row.created_at
+      });
+    });
+
     renderContacts();
     updateDashboard();
-    showToast('Imported', `${added} contacts imported from CSV`);
-    addActivity(`CSV import: ${added} contacts added`);
+    showToast('Imported', `${data.length} contacts imported from CSV`);
+    addActivity(`CSV import: ${data.length} contacts added`);
   };
   reader.readAsText(file);
   e.target.value = '';
@@ -2009,12 +2084,14 @@ function toggleSelectAll(el) {
   document.querySelectorAll('.contact-cb').forEach(cb => cb.checked = el.checked);
 }
 
-function bulkDelete() {
+async function bulkDelete() {
   const ids = [...document.querySelectorAll('.contact-cb:checked')].map(cb => cb.dataset.id);
   if (ids.length === 0) { showToast('Error', 'Select contacts first', true); return; }
   if (!confirm(`Delete ${ids.length} contacts?`)) return;
+  const { error } = await sb.from('contacts').delete().in('id', ids);
+  if (error) { showToast('Error', 'Could not delete contacts', true); return; }
   state.contacts = state.contacts.filter(c => !ids.includes(c.id));
-  saveContacts(); renderContacts(); updateDashboard();
+  renderContacts(); updateDashboard();
   showToast('Deleted', `${ids.length} contacts deleted`);
 }
 
