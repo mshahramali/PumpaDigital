@@ -2388,10 +2388,7 @@ async function loadSettingsFromSupabase() {
 }
 
 async function saveSettings() {
-  if (state.profile.role === 'admin') {
-    showToast('Error', 'Admin accounts cannot save WhatsApp credentials directly.', true);
-    return;
-  }
+  // Admin can save credentials — they go to their own business row or first business
 
   const token = document.getElementById('cfg-token').value.trim();
   const phoneId = document.getElementById('cfg-phone-id').value.trim();
@@ -2488,11 +2485,9 @@ function inboxFormatMsgTime(ts) {
 }
 
 // ===== INBOX — SUPABASE VERSION =====
-// Replaces Google Sheet with Supabase messages table
-// Each client only sees messages where business_id matches their own
 
 function inboxSaveConvs() {
-  // Supabase is now the source of truth — no localStorage needed
+  // Supabase is source of truth
 }
 
 const inboxState = {
@@ -2506,25 +2501,36 @@ const inboxState = {
 // Save outgoing message to Supabase
 async function saveToSheet(phone, message, type = 'outgoing') {
   try {
-    const { data: profile } = await sb.from('profiles').select('business_id').single();
-    if (!profile?.business_id) return;
+    const { data: profile } = await sb.from('profiles').select('business_id, role').single();
+    
+    let businessId = profile?.business_id;
+    // Admin: find business by phone_number_id from settings
+    if (profile?.role === 'admin') {
+      const { data: biz } = await sb.from('businesses').select('id').limit(1).single();
+      if (biz) businessId = biz.id;
+    }
 
-    const { data: biz } = await sb.from('businesses').select('phone_number_id').eq('id', profile.business_id).single();
+    const { data: settings } = await sb.from('businesses')
+      .select('phone_number_id')
+      .eq('id', businessId)
+      .single();
 
     await sb.from('messages').insert({
-      business_id: profile.business_id,
+      business_id: businessId,
+      contact_id: null,
+      direction: 'outbound',
+      content: String(message),
       phone: String(phone),
-      message: String(message),
-      type,
-      phone_number_id: biz?.phone_number_id || null,
-      read: true
+      phone_number_id: settings?.phone_number_id || null,
+      status: 'sent',
+      wa_message_id: null
     });
   } catch(e) {
-    console.error('Supabase save error:', e);
+    console.error('Supabase save outgoing error:', e);
   }
 }
 
-// Load all messages from Supabase for this business
+// Load all messages from Supabase
 async function inboxFetchFromSheet() {
   try {
     const { data: profile } = await sb.from('profiles').select('business_id, role').single();
@@ -2532,13 +2538,9 @@ async function inboxFetchFromSheet() {
 
     let query = sb.from('messages').select('*').order('created_at', { ascending: true });
 
-    // Admin sees all; client sees only their own business
     if (profile.role !== 'admin') {
       if (!profile.business_id) return;
       query = query.eq('business_id', profile.business_id);
-    } else if (profile.role === 'admin') {
-      // Admin: if a specific business is selected in view, filter by that
-      // Otherwise show all — admin inbox shows everything
     }
 
     const { data: messages, error } = await query;
@@ -2547,7 +2549,8 @@ async function inboxFetchFromSheet() {
 
     const newConvs = {};
     messages.forEach(row => {
-      const phone = String(row.phone);
+      // Use phone field, fall back to contact_id
+      const phone = String(row.phone || row.contact_id || 'unknown');
       const ts = new Date(row.created_at).getTime();
       if (!newConvs[phone]) {
         newConvs[phone] = {
@@ -2560,12 +2563,14 @@ async function inboxFetchFromSheet() {
           business_id: row.business_id
         };
       }
+      // Map direction to type
+      const msgType = row.direction === 'inbound' ? 'incoming' : 'outgoing';
       newConvs[phone].messages.push({
-        type: row.type || 'incoming',
-        text: row.message || '',
+        type: msgType,
+        text: row.content || '',
         ts
       });
-      newConvs[phone].lastMsg = (row.message || '').slice(0, 45);
+      newConvs[phone].lastMsg = (row.content || '').slice(0, 45);
       newConvs[phone].lastTs = ts;
     });
 
@@ -2579,6 +2584,24 @@ async function inboxFetchFromSheet() {
       if (newCount > oldCount && phone !== inboxState.activePhone) {
         newConvs[phone].unread = (newConvs[phone].unread || 0) + (newCount - oldCount);
       }
+    });
+
+    inboxState.convs = newConvs;
+    inboxRenderConvList();
+    inboxUpdateBadge();
+    if (inboxState.activePhone) inboxRenderMessages(inboxState.activePhone);
+  } catch(e) {
+    console.error('Inbox fetch error:', e);
+  }
+}
+
+function inboxLoadConvs() {
+  inboxFetchFromSheet();
+  if (!window._inboxPollStarted) {
+    window._inboxPollStarted = true;
+    setInterval(inboxFetchFromSheet, 10000);
+  }
+}
     });
 
     inboxState.convs = newConvs;
