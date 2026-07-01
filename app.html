@@ -209,7 +209,28 @@
     gap: 10px;
     padding: 8px 10px;
     border-radius: 8px;
+  }
+
+  .logout-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 9px 10px;
+    margin-top: 8px;
+    border-radius: 8px;
+    background: rgba(255,77,109,0.12);
+    border: 1px solid rgba(255,77,109,0.3);
+    color: var(--red);
     cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    font-family: 'Syne', sans-serif;
+    transition: all 0.15s;
+  }
+  .logout-btn:hover {
+    background: rgba(255,77,109,0.22);
+    border-color: var(--red);
   }
 
   .user-avatar {
@@ -1082,8 +1103,8 @@
           <div class="user-name" id="user-display-name">Loading...</div>
           <div class="user-role" id="user-display-role"></div>
         </div>
-        <span style="color:var(--text3);cursor:pointer" onclick="logout()">⏏</span>
       </div>
+      <div class="logout-btn" onclick="logout()" title="Log out">⏏ Logout</div>
     </div>
   </aside>
 
@@ -1760,6 +1781,7 @@ async function checkAuthAndInit() {
 }
 
 async function logout() {
+  if (!confirm('Log out of PUMPA CRM?')) return;
   await sb.auth.signOut();
   window.location.href = 'login.html';
 }
