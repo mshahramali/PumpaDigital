@@ -1701,7 +1701,7 @@
 // ===== STATE =====
 let state = {
   contacts: [],
-  campaigns: JSON.parse(localStorage.getItem('pumpa_campaigns') || '[]'),
+  campaigns: [],
   messages: JSON.parse(localStorage.getItem('pumpa_messages') || '[]'),
   settings: JSON.parse(localStorage.getItem('pumpa_settings') || '{}'),
   loggedIn: false,
@@ -1755,6 +1755,7 @@ async function checkAuthAndInit() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   await loadContactsFromSupabase();
+  await loadCampaignsFromSupabase();
   initApp();
 }
 
@@ -2099,7 +2100,37 @@ function bulkMessage() {
   showToast('Info', 'Select campaign type to message selected contacts');
 }
 
-// ===== CAMPAIGNS =====
+// ===== CAMPAIGNS: SUPABASE-BACKED =====
+async function loadCampaignsFromSupabase() {
+  if (state.profile.role === 'admin') {
+    state.campaigns = [];
+    return;
+  }
+  const { data, error } = await sb
+    .from('campaigns')
+    .select('*')
+    .eq('business_id', state.profile.business_id)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    showToast('Error', 'Could not load campaigns', true);
+    state.campaigns = [];
+    return;
+  }
+
+  state.campaigns = data.map(row => ({
+    id: row.id,
+    name: row.name,
+    type: row.type || 'broadcast',
+    template: row.template_name || '',
+    schedule: row.scheduled_at || '',
+    notes: row.notes || '',
+    status: row.status || 'active',
+    created: row.created_at,
+    sent: row.sent_count || 0
+  }));
+}
+
 function openNewCampaign() {
   document.getElementById('camp-name').value = '';
   document.getElementById('camp-notes').value = '';
@@ -2107,24 +2138,47 @@ function openNewCampaign() {
   document.getElementById('modal-campaign').classList.add('open');
 }
 
-function createCampaign() {
+async function createCampaign() {
   const name = document.getElementById('camp-name').value.trim();
   if (!name) { showToast('Error', 'Campaign name required', true); return; }
 
-  const campaign = {
-    id: Date.now().toString(),
-    name,
-    type: document.getElementById('camp-type').value,
-    template: document.getElementById('camp-template').value,
-    schedule: document.getElementById('camp-schedule').value,
-    notes: document.getElementById('camp-notes').value,
-    status: 'active',
-    created: new Date().toISOString(),
-    sent: 0
-  };
+  if (state.profile.role === 'admin') {
+    showToast('Error', 'Admin accounts cannot create campaigns directly.', true);
+    return;
+  }
 
-  state.campaigns.push(campaign);
-  localStorage.setItem('pumpa_campaigns', JSON.stringify(state.campaigns));
+  const type = document.getElementById('camp-type').value;
+  const templateName = document.getElementById('camp-template').value;
+  const schedule = document.getElementById('camp-schedule').value;
+  const notes = document.getElementById('camp-notes').value;
+
+  const { data, error } = await sb
+    .from('campaigns')
+    .insert({
+      business_id: state.profile.business_id,
+      name,
+      type,
+      template_name: templateName,
+      scheduled_at: schedule || null,
+      notes,
+      status: 'active',
+      sent_count: 0
+    })
+    .select()
+    .single();
+
+  if (error) {
+    showToast('Error', 'Could not create campaign: ' + error.message, true);
+    return;
+  }
+
+  state.campaigns.unshift({
+    id: data.id, name: data.name, type: data.type,
+    template: data.template_name || '', schedule: data.scheduled_at || '',
+    notes: data.notes || '', status: data.status,
+    created: data.created_at, sent: data.sent_count || 0
+  });
+
   renderCampaigns();
   updateDashboard();
   closeModal('modal-campaign');
@@ -2163,22 +2217,33 @@ function renderCampaigns() {
   `).join('');
 }
 
-function deleteCampaign(id) {
+async function deleteCampaign(id) {
+  const { error } = await sb.from('campaigns').delete().eq('id', id);
+  if (error) { showToast('Error', 'Could not delete campaign', true); return; }
   state.campaigns = state.campaigns.filter(c => c.id !== id);
-  localStorage.setItem('pumpa_campaigns', JSON.stringify(state.campaigns));
   renderCampaigns(); updateDashboard();
   showToast('Deleted', 'Campaign removed');
 }
 
-function launchCampaign(id) {
+async function launchCampaign(id) {
   const camp = state.campaigns.find(c => c.id === id);
   if (!camp) return;
   if (state.contacts.length === 0) { showToast('Error', 'Add contacts first before launching a campaign', true); return; }
   if (!state.settings.token) { showToast('Error', 'Configure API credentials in Settings first', true); return; }
+
+  const { error } = await sb
+    .from('campaigns')
+    .update({ status: 'completed', sent_count: state.contacts.length })
+    .eq('id', id);
+
+  if (error) {
+    showToast('Error', 'Could not update campaign status', true);
+    return;
+  }
+
   showToast('Campaign Launched', `"${camp.name}" sending to ${state.contacts.length} contacts`);
   addActivity(`Campaign launched: ${camp.name} → ${state.contacts.length} contacts`);
   camp.status = 'completed'; camp.sent = state.contacts.length;
-  localStorage.setItem('pumpa_campaigns', JSON.stringify(state.campaigns));
   renderCampaigns(); updateDashboard();
 }
 
