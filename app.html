@@ -9,6 +9,7 @@
 <meta name="robots" content="noindex, nofollow">
 <title>PUMPA CRM — WhatsApp Marketing Platform</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root {
     --bg: #0a0a0f;
@@ -1024,21 +1025,11 @@
 </head>
 <body>
 
-<!-- LOGIN SCREEN -->
+<!-- AUTH CHECK / LOADING SCREEN -->
 <div id="login-screen">
-  <div class="login-box">
+  <div class="login-box" style="text-align:center;">
     <div class="login-logo">PUMPA <span>CRM</span></div>
-    <div class="login-sub">WhatsApp Marketing Platform</div>
-    <div class="login-field">
-      <label>Email</label>
-      <input type="email" id="login-email" placeholder="Enter email" autocomplete="email">
-    </div>
-    <div class="login-field">
-      <label>Password</label>
-      <input type="password" id="login-pass" placeholder="Enter password" autocomplete="current-password">
-    </div>
-    <button class="login-btn" onclick="doLogin()">Sign In →</button>
-    
+    <div class="login-sub" id="auth-status-msg">Checking your session...</div>
   </div>
 </div>
 
@@ -1086,10 +1077,10 @@
     </nav>
     <div class="sidebar-footer">
       <div class="user-pill">
-        <div class="user-avatar">S</div>
+        <div class="user-avatar" id="user-avatar-initial">?</div>
         <div class="user-info">
-          <div class="user-name">Shahram Ali</div>
-          <div class="user-role">PUMPA Admin</div>
+          <div class="user-name" id="user-display-name">Loading...</div>
+          <div class="user-role" id="user-display-role"></div>
         </div>
         <span style="color:var(--text3);cursor:pointer" onclick="logout()">⏏</span>
       </div>
@@ -1713,31 +1704,66 @@ let state = {
   campaigns: JSON.parse(localStorage.getItem('pumpa_campaigns') || '[]'),
   messages: JSON.parse(localStorage.getItem('pumpa_messages') || '[]'),
   settings: JSON.parse(localStorage.getItem('pumpa_settings') || '{}'),
-  loggedIn: false
+  loggedIn: false,
+  profile: null   // { business_id, role, full_name } — filled in after real auth check
 };
 
-// ===== LOGIN =====
-function doLogin() {
-  const e = document.getElementById('login-email').value;
-  const p = document.getElementById('login-pass').value;
-  if (e === 'alybaloch72@gmail.com' && p === 'Pumpa@2026!') {
-    document.getElementById('login-screen').style.display = 'none';
-    document.getElementById('app').style.display = 'block';
-    state.loggedIn = true;
-    initApp();
-  } else {
-    showToast('Error', 'Invalid email or password', true);
+// ===== SUPABASE AUTH =====
+const SUPABASE_URL = 'https://dpeszhbdgxevlkrfllrc.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_gZj05PTTPix9SEKEwBXo5Q_W8YGBky2';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+async function checkAuthAndInit() {
+  const statusEl = document.getElementById('auth-status-msg');
+
+  const { data: { session } } = await sb.auth.getSession();
+
+  if (!session) {
+    // Not logged in at all — send to login page
+    window.location.href = 'login.html';
+    return;
   }
+
+  // Logged in — now fetch their profile (role + business_id)
+  // This SELECT is protected by Row Level Security: a user can only
+  // ever fetch their own profile row, never anyone else's.
+  const { data: profile, error } = await sb
+    .from('profiles')
+    .select('business_id, role, full_name')
+    .eq('id', session.user.id)
+    .single();
+
+  if (error || !profile) {
+    statusEl.textContent = 'Could not load your account. Signing you out...';
+    await sb.auth.signOut();
+    setTimeout(() => window.location.href = 'login.html', 1500);
+    return;
+  }
+
+  state.loggedIn = true;
+  state.profile = profile;
+  state.profile.email = session.user.email;
+
+  // Reflect the real user in the sidebar
+  const displayName = profile.full_name || session.user.email;
+  document.getElementById('user-display-name').textContent = displayName;
+  document.getElementById('user-display-role').textContent =
+    profile.role === 'admin' ? 'PUMPA Admin' : 'Client Account';
+  document.getElementById('user-avatar-initial').textContent =
+    displayName.charAt(0).toUpperCase();
+
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  initApp();
 }
 
-function logout() {
-  document.getElementById('login-screen').style.display = 'flex';
-  document.getElementById('app').style.display = 'none';
+async function logout() {
+  await sb.auth.signOut();
+  window.location.href = 'login.html';
 }
 
-document.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !state.loggedIn) doLogin();
-});
+// Run the auth check the moment the page loads
+checkAuthAndInit();
 
 // ===== NAVIGATION =====
 function showPage(name, el) {
