@@ -2517,7 +2517,7 @@ async function saveToSheet(phone, message, type = 'outgoing') {
     if (!businessId) { console.error('No business linked; cannot save message'); return; }
 
     const { data: settings } = await sb.from('businesses')
-      .select('phone_number_id')
+      .select('whatsapp_phone_number_id')
       .eq('id', businessId)
       .single();
 
@@ -2527,7 +2527,7 @@ async function saveToSheet(phone, message, type = 'outgoing') {
       direction: 'outbound',
       content: String(message),
       phone: String(phone),
-      phone_number_id: settings?.phone_number_id || null,
+      phone_number_id: settings?.whatsapp_phone_number_id || null,
       status: 'sent',
       wa_message_id: null
     });
@@ -2574,6 +2574,8 @@ async function inboxFetchFromSheet() {
       newConvs[phone].messages.push({
         type: msgType,
         text: row.content || '',
+        media_url: row.media_url || null,
+        media_type: row.media_type || null,
         ts
       });
       newConvs[phone].lastMsg = (row.content || '').slice(0, 45);
@@ -2752,11 +2754,28 @@ function inboxRenderMessages(phone) {
 
     const [bg, fg] = inboxGetColor(phone);
     const isOut = msg.type === 'outgoing';
+
+    // Build the bubble's inner content: show real media when we have a URL,
+    // otherwise fall back to the plain text (escaped).
+    const safeText = (msg.text || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    let bubbleContent;
+    if (msg.media_url && msg.media_type === 'image') {
+      bubbleContent = `<img src="${msg.media_url}" alt="image" style="max-width:220px;max-height:260px;border-radius:8px;display:block;cursor:pointer" onclick="window.open('${msg.media_url}','_blank')">`;
+    } else if (msg.media_url && msg.media_type === 'video') {
+      bubbleContent = `<video src="${msg.media_url}" controls style="max-width:240px;border-radius:8px;display:block"></video>`;
+    } else if (msg.media_url && msg.media_type === 'audio') {
+      bubbleContent = `<audio src="${msg.media_url}" controls style="max-width:240px"></audio>`;
+    } else if (msg.media_url && msg.media_type === 'document') {
+      bubbleContent = `<a href="${msg.media_url}" target="_blank" style="color:inherit;text-decoration:underline">📄 ${safeText || 'Open document'}</a>`;
+    } else {
+      bubbleContent = safeText;
+    }
+
     container.innerHTML += `
       <div class="inbox-msg-row ${msg.type}">
         ${!isOut ? `<div class="inbox-msg-avatar" style="background:${bg};color:${fg}">${inboxInitials(c.name)}</div>` : ''}
         <div>
-          <div class="inbox-msg-bubble">${msg.text.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+          <div class="inbox-msg-bubble">${bubbleContent}</div>
           <div class="inbox-msg-time">${inboxFormatMsgTime(msg.ts)}${isOut ? ' ✓' : ''}</div>
         </div>
         ${isOut ? `<div class="inbox-msg-avatar" style="background:var(--accent-glow);color:var(--accent)">S</div>` : ''}
