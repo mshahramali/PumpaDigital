@@ -685,12 +685,61 @@
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 
   /* RESPONSIVE */
+  /* Hidden on desktop; shown only on mobile */
+  .mobile-topbar { display: none; }
+  .mobile-overlay { display: none; }
+  .inbox-back-btn { display: none; }
+
   @media (max-width: 768px) {
     .stats-grid { grid-template-columns: 1fr 1fr; }
     .grid-2 { grid-template-columns: 1fr; }
     .grid-3 { grid-template-columns: 1fr; }
-    .sidebar { transform: translateX(-100%); }
-    .main { margin-left: 0; padding: 16px; }
+
+    /* Fixed top bar with the menu button */
+    .mobile-topbar {
+      display: flex; align-items: center; gap: 12px;
+      position: fixed; top: 0; left: 0; right: 0; height: 52px;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      z-index: 120; padding: 0 14px;
+    }
+    .mobile-menu-btn {
+      background: none; border: none; color: var(--text);
+      font-size: 22px; cursor: pointer; width: 36px; height: 36px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .mobile-topbar-title { font-family:'Syne',sans-serif; font-weight:800; font-size:16px; letter-spacing:-0.3px; }
+    .mobile-topbar-title span { color: var(--accent); }
+
+    /* Sidebar becomes a slide-in drawer */
+    .sidebar {
+      transform: translateX(-100%);
+      transition: transform 0.25s ease;
+      z-index: 200; width: 264px;
+    }
+    .sidebar.open { transform: translateX(0); }
+
+    .mobile-overlay.show {
+      display: block; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.5); z-index: 150;
+    }
+
+    /* Content full width, clear of the top bar */
+    .main {
+      margin-left: 0;
+      padding: 68px 16px 16px;
+    }
+
+    /* Inbox: one panel at a time on phones */
+    #page-inbox.active { margin: 0; padding: 0; }
+    .inbox-convs { width: 100%; }
+    .inbox-wrap .inbox-chat { display: none; }
+    .inbox-wrap.chat-open .inbox-convs { display: none; }
+    .inbox-wrap.chat-open .inbox-chat { display: flex; width: 100%; }
+    .inbox-back-btn {
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none; color: var(--text);
+      font-size: 22px; cursor: pointer; margin-right: 4px; flex-shrink: 0;
+    }
   }
 
   /* ── INBOX STYLES ── */
@@ -1056,6 +1105,13 @@
 
 <!-- MAIN APP -->
 <div id="app">
+  <!-- Mobile-only top bar (hidden on desktop) -->
+  <div class="mobile-topbar">
+    <button class="mobile-menu-btn" onclick="toggleMobileMenu()" aria-label="Menu">☰</button>
+    <div class="mobile-topbar-title">PUMPA <span>CRM</span></div>
+  </div>
+  <div class="mobile-overlay" id="mobile-overlay" onclick="closeMobileMenu()"></div>
+
   <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="sidebar-logo">
@@ -1229,6 +1285,7 @@
 
           <div id="inbox-active-chat" style="display:none;flex-direction:column;height:100%">
             <div class="inbox-chat-header">
+              <button class="inbox-back-btn" onclick="inboxCloseChatMobile()" aria-label="Back">←</button>
               <div class="inbox-chat-avatar" id="inbox-chat-avatar"></div>
               <div style="flex:1">
                 <div class="inbox-chat-name" id="inbox-chat-name"></div>
@@ -1795,6 +1852,21 @@ async function logout() {
 checkAuthAndInit();
 
 // ===== NAVIGATION =====
+// ===== MOBILE MENU =====
+function toggleMobileMenu() {
+  const sb = document.querySelector('.sidebar');
+  const ov = document.getElementById('mobile-overlay');
+  const open = sb.classList.toggle('open');
+  if (ov) ov.classList.toggle('show', open);
+}
+function closeMobileMenu() {
+  document.querySelector('.sidebar')?.classList.remove('open');
+  document.getElementById('mobile-overlay')?.classList.remove('show');
+}
+function inboxCloseChatMobile() {
+  document.querySelector('.inbox-wrap')?.classList.remove('chat-open');
+}
+
 function showPage(name, el) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -1802,17 +1874,21 @@ function showPage(name, el) {
   if (el) el.classList.add('active');
   if (name === 'send') loadSettingsDisplay();
   const main = document.querySelector('.main');
+  const mobile = window.innerWidth <= 768;
   if (name === 'inbox') {
     main.style.padding = '0';
     main.style.overflow = 'hidden';
-    main.style.height = '100vh';
+    main.style.height = mobile ? 'calc(100vh - 52px)' : '100vh';
+    main.style.marginTop = mobile ? '52px' : '';
     inboxRenderConvList();
     inboxLoadConvs();
   } else {
-    main.style.padding = '32px';
+    main.style.padding = mobile ? '68px 16px 16px' : '32px';
     main.style.overflow = '';
     main.style.height = '';
+    main.style.marginTop = '';
   }
+  closeMobileMenu();
 }
 
 // ===== INIT =====
@@ -2733,6 +2809,7 @@ function inboxOpenChat(phone) {
   inboxSaveConvs();
   inboxUpdateBadge();
 
+  document.querySelector('.inbox-wrap')?.classList.add('chat-open');
   document.getElementById('inbox-chat-empty').style.display = 'none';
   const ac = document.getElementById('inbox-active-chat');
   ac.style.display = 'flex';
