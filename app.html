@@ -1726,7 +1726,7 @@
 let state = {
   contacts: [],
   campaigns: [],
-  messages: JSON.parse(localStorage.getItem('pumpa_messages') || '[]'),
+  messages: [],   // populated from Supabase at login (no browser storage)
   settings: {},
   loggedIn: false,
   profile: null   // { business_id, role, full_name } — filled in after real auth check
@@ -1781,6 +1781,7 @@ async function checkAuthAndInit() {
   await loadContactsFromSupabase();
   await loadCampaignsFromSupabase();
   await loadSettingsFromSupabase();
+  await loadMessagesFromSupabase();
   initApp();
 }
 
@@ -2330,8 +2331,7 @@ async function sendMessage() {
     if (data.messages && data.messages[0]) {
       resultEl.innerHTML = `<span style="color:var(--accent)">✅ Message sent! ID: ${data.messages[0].id}</span>`;
       const log = { time: new Date().toISOString(), phone, template: type === 'template' ? document.getElementById('send-template').value : 'text', status: 'delivered' };
-      state.messages.push(log);
-      localStorage.setItem('pumpa_messages', JSON.stringify(state.messages));
+      state.messages.unshift(log);
       updateDashboard();
       renderWeeklyChart();
       renderMessageLog();
@@ -2345,8 +2345,7 @@ async function sendMessage() {
       const errMsg = data.error?.message || JSON.stringify(data);
       resultEl.innerHTML = `<span style="color:var(--red)">❌ Error: ${errMsg}</span>`;
       const log = { time: new Date().toISOString(), phone, template: 'N/A', status: 'failed' };
-      state.messages.push(log);
-      localStorage.setItem('pumpa_messages', JSON.stringify(state.messages));
+      state.messages.unshift(log);
       updateDashboard();
     }
   } catch (err) {
@@ -2371,6 +2370,33 @@ function renderMessageLog() {
 }
 
 // ===== SETTINGS: SUPABASE-BACKED (tied to business, not browser) =====
+async function loadMessagesFromSupabase() {
+  // Message stats for Dashboard + Reports come from the Supabase messages table
+  // (source of truth), not from browser storage.
+  if (!state.profile.business_id && state.profile.role !== 'admin') {
+    state.messages = [];
+    return;
+  }
+  let query = sb.from('messages')
+    .select('created_at, phone, content, status, direction')
+    .eq('direction', 'outbound')
+    .order('created_at', { ascending: false });
+
+  if (state.profile.role !== 'admin') {
+    query = query.eq('business_id', state.profile.business_id);
+  }
+
+  const { data, error } = await query;
+  if (error || !data) { state.messages = []; return; }
+
+  state.messages = data.map(r => ({
+    time: r.created_at,
+    phone: r.phone,
+    template: r.content || 'message',
+    status: r.status === 'failed' ? 'failed' : 'delivered'
+  }));
+}
+
 async function loadSettingsFromSupabase() {
   // Load credentials from whichever business this account is linked to.
   // Admins now have their own business row (PUMPA), so they load too.
