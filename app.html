@@ -1241,6 +1241,9 @@
 
             <div class="inbox-input-area">
               <div class="inbox-input-row">
+                <input type="file" id="inbox-file-input" accept="image/*" style="display:none" onchange="inboxSendImageFile(event)">
+                <button class="inbox-send-btn" style="background:var(--surface3);color:var(--text2)" onclick="document.getElementById('inbox-file-input').click()" title="Attach image">📎</button>
+                <button class="inbox-send-btn" style="background:var(--surface3);color:var(--text2)" onclick="inboxSendImageUrl()" title="Send image from URL">🔗</button>
                 <textarea id="inbox-msg-input" placeholder="Type a message… (Enter to send)" rows="1"
                   onkeydown="inboxHandleKey(event)" oninput="inboxAutoResize(this)"></textarea>
                 <button class="inbox-send-btn" onclick="inboxSendMessage()" title="Send">➤</button>
@@ -2827,6 +2830,87 @@ async function inboxSendMessage() {
     }
   } catch(e) {
     showToast('Error', 'Network error', true);
+  }
+}
+
+// Send an image chosen from the user's computer
+async function inboxSendImageFile(event) {
+  const file = event.target.files[0];
+  event.target.value = ''; // reset so same file can be re-picked later
+  if (!file) return;
+  const phone = inboxState.activePhone;
+  if (!phone) return;
+
+  if (!state.profile.business_id) {
+    showToast('Error', 'This account is not linked to a business.', true);
+    return;
+  }
+
+  // Read the file as base64
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const base64 = String(reader.result).split(',')[1]; // strip data: prefix
+    // Optimistic bubble
+    inboxAddMessage(phone, { type: 'outgoing', text: '[Image]', media_url: reader.result, media_type: 'image', ts: Date.now() });
+    showToast('Sending…', 'Uploading image');
+    try {
+      const res = await fetch('/api/send-media', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone,
+          businessId: state.profile.business_id,
+          imageBase64: base64,
+          contentType: file.type || 'image/jpeg',
+          mediaType: 'image'
+        })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        showToast('Sent!', 'Image delivered via WhatsApp');
+        addActivity(`Image sent to +${phone}`);
+      } else {
+        showToast('Error', data.error || 'Image send failed', true);
+      }
+    } catch (e) {
+      showToast('Error', 'Network error sending image', true);
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+// Send an image from a pasted public URL
+async function inboxSendImageUrl() {
+  const phone = inboxState.activePhone;
+  if (!phone) return;
+  const url = prompt('Paste a public image URL to send:');
+  if (!url) return;
+  if (!state.profile.business_id) {
+    showToast('Error', 'This account is not linked to a business.', true);
+    return;
+  }
+  inboxAddMessage(phone, { type: 'outgoing', text: '[Image]', media_url: url, media_type: 'image', ts: Date.now() });
+  showToast('Sending…', 'Sending image');
+  try {
+    const res = await fetch('/api/send-media', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone,
+        businessId: state.profile.business_id,
+        imageUrl: url,
+        mediaType: 'image'
+      })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast('Sent!', 'Image delivered via WhatsApp');
+      addActivity(`Image sent to +${phone}`);
+    } else {
+      showToast('Error', data.error || 'Image send failed', true);
+    }
+  } catch (e) {
+    showToast('Error', 'Network error sending image', true);
   }
 }
 
