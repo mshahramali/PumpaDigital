@@ -1106,6 +1106,38 @@
     color: var(--text3);
     font-size: 12px;
   }
+  /* ==== MOBILE INBOX OVERRIDES (placed last so they win over the desktop inbox rules above) ==== */
+  @media (max-width: 768px) {
+    #page-inbox.active {
+      margin: 0 !important;
+      padding: 0 !important;
+      height: calc(100vh - 52px) !important;
+    }
+    .inbox-wrap { width: 100%; overflow: hidden; }
+    .inbox-convs { width: 100%; }
+    .inbox-wrap .inbox-chat { display: none; }
+    .inbox-wrap.chat-open .inbox-convs { display: none; }
+    .inbox-wrap.chat-open .inbox-chat { display: flex; width: 100%; }
+    .inbox-chat, .inbox-messages, .inbox-chat-header {
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+    .inbox-chat-header { padding: 12px 14px; gap: 8px; }
+    .inbox-chat-header .btn { display: none; }        /* hide 'Reply' button on mobile */
+    .inbox-back-btn {
+      display: flex !important; align-items: center; justify-content: center;
+      background: none; border: none; color: var(--text);
+      font-size: 22px; cursor: pointer; flex-shrink: 0;
+    }
+    .inbox-chat-name, .inbox-chat-phone {
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .inbox-messages { padding: 12px; }
+    .inbox-msg-row { max-width: 88%; }
+    .inbox-msg-bubble { max-width: 100%; overflow-wrap: anywhere; }
+    .inbox-msg-bubble img,
+    .inbox-msg-bubble video { max-width: 100% !important; height: auto; }
+  }
 </style>
 </head>
 <body>
