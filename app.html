@@ -740,6 +740,20 @@
       background: none; border: none; color: var(--text);
       font-size: 22px; cursor: pointer; margin-right: 4px; flex-shrink: 0;
     }
+
+    /* Keep everything within the phone width — no horizontal spill */
+    #app { overflow-x: hidden; }
+    .inbox-chat, .inbox-messages { overflow-x: hidden; max-width: 100%; }
+    .inbox-messages { padding: 12px; }
+    .inbox-msg-row { max-width: 90%; }
+    .inbox-msg-bubble { max-width: 100%; }
+    .inbox-msg-bubble img,
+    .inbox-msg-bubble video { max-width: 100% !important; height: auto; }
+    .inbox-chat-header { padding: 12px 14px; gap: 8px; overflow: hidden; }
+    .inbox-chat-header > div[style*="flex:1"] { min-width: 0; }
+    .inbox-chat-name, .inbox-chat-phone {
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
   }
 
   /* ── INBOX STYLES ── */
@@ -1009,6 +1023,7 @@
     border-radius: 12px;
     font-size: 13px;
     line-height: 1.5;
+    overflow-wrap: anywhere;
   }
 
   .incoming .inbox-msg-bubble {
@@ -1287,7 +1302,7 @@
             <div class="inbox-chat-header">
               <button class="inbox-back-btn" onclick="inboxCloseChatMobile()" aria-label="Back">←</button>
               <div class="inbox-chat-avatar" id="inbox-chat-avatar"></div>
-              <div style="flex:1">
+              <div style="flex:1;min-width:0">
                 <div class="inbox-chat-name" id="inbox-chat-name"></div>
                 <div class="inbox-chat-phone" id="inbox-chat-phone"></div>
               </div>
