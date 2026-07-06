@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Feedback — Usama Silk</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0a0a0f; --surface:#14141c; --surface2:#1e1e2a; --border:#2a2a3a;
+    --accent:#25d366; --text:#f0f0f8; --text2:#9494b0; --text3:#5a5a75; --yellow:#ffd166;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  body{
+    font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);
+    min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;
+    background-image:radial-gradient(ellipse at 30% 20%,rgba(37,211,102,0.10),transparent 60%);
+  }
+  .card{
+    width:100%;max-width:480px;background:var(--surface);border:1px solid var(--border);
+    border-radius:22px;padding:36px 30px;position:relative;overflow:hidden;
+  }
+  .card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;
+    background:linear-gradient(90deg,transparent,var(--accent),transparent);}
+  .brand{font-family:'Syne',sans-serif;font-size:30px;font-weight:800;letter-spacing:-0.5px;text-align:center;}
+  .brand span{color:var(--accent);}
+  .subtitle{text-align:center;color:var(--text2);font-size:14px;margin:8px 0 28px;}
+  .field{margin-bottom:20px;}
+  label{display:block;font-size:13px;font-weight:500;color:var(--text2);margin-bottom:8px;}
+  input,textarea{
+    width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:12px;
+    padding:15px 16px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:16px;outline:none;
+    transition:border-color .2s;
+  }
+  input:focus,textarea:focus{border-color:var(--accent);}
+  textarea{resize:none;min-height:96px;line-height:1.5;}
+  .hint{font-size:12px;color:var(--text3);margin-top:6px;}
+  .stars{display:flex;gap:10px;justify-content:center;margin:4px 0;}
+  .star{font-size:38px;cursor:pointer;filter:grayscale(1);opacity:.4;transition:all .12s;user-select:none;}
+  .star.on{filter:grayscale(0);opacity:1;transform:scale(1.08);}
+  .btn{
+    width:100%;background:var(--accent);color:#000;border:none;border-radius:12px;padding:17px;
+    font-family:'Syne',sans-serif;font-size:17px;font-weight:700;cursor:pointer;margin-top:6px;
+    transition:opacity .2s,transform .1s;
+  }
+  .btn:active{transform:scale(.99);}
+  .btn:disabled{opacity:.5;cursor:not-allowed;}
+  .foot{text-align:center;font-size:11px;color:var(--text3);margin-top:18px;}
+  /* success + error */
+  .screen{display:none;text-align:center;padding:20px 0;}
+  .screen.show{display:block;}
+  .big-emoji{font-size:64px;margin-bottom:14px;}
+  .screen h2{font-family:'Syne',sans-serif;font-size:24px;margin-bottom:10px;}
+  .screen p{color:var(--text2);font-size:15px;line-height:1.6;}
+  .link-btn{background:none;border:none;color:var(--accent);font-size:14px;margin-top:20px;cursor:pointer;text-decoration:underline;font-family:'DM Sans',sans-serif;}
+  .err{color:#ff6b81;font-size:13px;margin-top:12px;min-height:16px;text-align:center;}
+</style>
+</head>
+<body>
+  <div class="card">
+
+    <!-- FORM -->
+    <div id="form-screen">
+      <div class="brand">Usama <span>Silk</span></div>
+      <div class="subtitle">We'd love your feedback 💚</div>
+
+      <div class="field">
+        <label>Your Name</label>
+        <input type="text" id="f-name" placeholder="e.g. Ahmed" autocomplete="name">
+      </div>
+
+      <div class="field">
+        <label>WhatsApp Number</label>
+        <input type="tel" id="f-phone" placeholder="923001234567" inputmode="numeric" autocomplete="tel">
+        <div class="hint">Include country code, no + or spaces (e.g. 92 for Pakistan)</div>
+      </div>
+
+      <div class="field">
+        <label style="text-align:center">How was your experience?</label>
+        <div class="stars" id="stars">
+          <span class="star" data-v="1">⭐</span>
+          <span class="star" data-v="2">⭐</span>
+          <span class="star" data-v="3">⭐</span>
+          <span class="star" data-v="4">⭐</span>
+          <span class="star" data-v="5">⭐</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Your Feedback</label>
+        <textarea id="f-feedback" placeholder="Tell us about your visit..."></textarea>
+      </div>
+
+      <button class="btn" id="submit-btn" onclick="submitFeedback()">Submit Feedback</button>
+      <div class="err" id="err-msg"></div>
+      <div class="foot">Powered by PUMPA CRM</div>
+    </div>
+
+    <!-- SUCCESS -->
+    <div class="screen" id="success-screen">
+      <div class="big-emoji">🎉</div>
+      <h2>Thank you!</h2>
+      <p>Your feedback has been received.<br>Check your WhatsApp for a message from us 💚</p>
+      <button class="link-btn" onclick="resetForm()">Submit another response</button>
+    </div>
+
+  </div>
+
+<script>
+  // ===== CONFIG — change these to rebrand for another client (e.g. Kapacious) =====
+  const CONFIG = {
+    businessName: 'PUMPA',                 // which business's WhatsApp sends the message
+    templateName: 'usama_silk_thank_you',  // an APPROVED Meta template
+    templateLang: 'en',                    // template language code
+    endpoint: '/api/feedback'
+  };
+  // ===============================================================================
+
+  let rating = 0;
+
+  document.querySelectorAll('.star').forEach(star => {
+    star.addEventListener('click', () => {
+      rating = parseInt(star.dataset.v);
+      document.querySelectorAll('.star').forEach(s => {
+        s.classList.toggle('on', parseInt(s.dataset.v) <= rating);
+      });
+    });
+  });
+
+  async function submitFeedback() {
+    const name = document.getElementById('f-name').value.trim();
+    const phone = document.getElementById('f-phone').value.trim();
+    const feedback = document.getElementById('f-feedback').value.trim();
+    const errEl = document.getElementById('err-msg');
+    const btn = document.getElementById('submit-btn');
+    errEl.textContent = '';
+
+    if (!phone) { errEl.textContent = 'Please enter your WhatsApp number.'; return; }
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    if (cleanPhone.length < 8) { errEl.textContent = 'Please enter a valid number with country code.'; return; }
+
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+
+    try {
+      const res = await fetch(CONFIG.endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name, phone: cleanPhone, rating, feedback,
+          businessName: CONFIG.businessName,
+          templateName: CONFIG.templateName,
+          templateLang: CONFIG.templateLang
+        })
+      });
+      const data = await res.json();
+
+      if (data.ok) {
+        document.getElementById('form-screen').style.display = 'none';
+        document.getElementById('success-screen').classList.add('show');
+      } else {
+        errEl.textContent = data.error || 'Something went wrong. Please try again.';
+        btn.disabled = false;
+        btn.textContent = 'Submit Feedback';
+      }
+    } catch (e) {
+      errEl.textContent = 'Network error. Please try again.';
+      btn.disabled = false;
+      btn.textContent = 'Submit Feedback';
+    }
+  }
+
+  function resetForm() {
+    document.getElementById('f-name').value = '';
+    document.getElementById('f-phone').value = '';
+    document.getElementById('f-feedback').value = '';
+    rating = 0;
+    document.querySelectorAll('.star').forEach(s => s.classList.remove('on'));
+    document.getElementById('success-screen').classList.remove('show');
+    document.getElementById('form-screen').style.display = 'block';
+    document.getElementById('submit-btn').disabled = false;
+    document.getElementById('submit-btn').textContent = 'Submit Feedback';
+    document.getElementById('err-msg').textContent = '';
+  }
+</script>
+</body>
+</html>
