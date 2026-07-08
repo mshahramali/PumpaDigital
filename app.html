@@ -1519,7 +1519,7 @@
           </div>
           <div style="margin-bottom:16px">
             <div style="font-size:12px;color:var(--text2);margin-bottom:6px">Access Token</div>
-            <div style="font-size:13px;font-family:monospace;background:var(--surface2);padding:8px 12px;border-radius:6px;color:var(--text3)" id="display-token">Not configured</div>
+            <div style="font-size:13px;background:var(--surface2);padding:8px 12px;border-radius:6px;color:var(--accent)" id="display-token">🔒 Secured on server</div>
           </div>
           <div style="padding:12px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--text2);line-height:1.6">
             ⚠️ Configure your API credentials in <strong style="color:var(--text)">Settings</strong> before sending messages.
@@ -1700,8 +1700,9 @@
       <div class="settings-section">
         <div class="settings-title">🔑 WhatsApp API Credentials</div>
         <div class="form-group">
-          <label class="form-label">Access Token (Permanent)</label>
-          <input type="password" class="form-input" id="cfg-token" placeholder="EAAecohAl2ZCI...">
+          <div style="padding:10px 12px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--text2);line-height:1.6">
+            🔒 The WhatsApp access token is managed securely on the server. It is never stored in your browser.
+          </div>
         </div>
         <div class="form-group">
           <label class="form-label">Phone Number ID</label>
@@ -1847,6 +1848,24 @@ let state = {
 const SUPABASE_URL = 'https://dpeszhbdgxevlkrfllrc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_gZj05PTTPix9SEKEwBXo5Q_W8YGBky2';
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ===== SERVER-SIDE WHATSAPP CALLS =====
+// The WhatsApp token lives ONLY on the server. The browser proves who it is
+// with its Supabase login token; the server decides which business it may
+// send from. Returns Meta's raw JSON, same shape the old direct calls got.
+async function waApi(path, payload) {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) return { error: { message: 'Not logged in' } };
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${session.access_token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload || {})
+  });
+  return res.json();
+}
 
 async function checkAuthAndInit() {
   const statusEl = document.getElementById('auth-status-msg');
@@ -2391,7 +2410,7 @@ async function launchCampaign(id) {
   const camp = state.campaigns.find(c => c.id === id);
   if (!camp) return;
   if (state.contacts.length === 0) { showToast('Error', 'Add contacts first before launching a campaign', true); return; }
-  if (!state.settings.token) { showToast('Error', 'Configure API credentials in Settings first', true); return; }
+  if (!state.settings.phoneId) { showToast('Error', 'Configure API credentials in Settings first', true); return; }
 
   const { error } = await sb
     .from('campaigns')
@@ -2421,7 +2440,7 @@ async function sendMessage() {
   const type = document.getElementById('send-type').value;
 
   if (!phone) { showToast('Error', 'Enter recipient phone number', true); return; }
-  if (!state.settings.token) { showToast('Error', 'Add API token in Settings first', true); return; }
+  if (!state.settings.phoneId) { showToast('Error', 'Configure your Phone Number ID in Settings first', true); return; }
   if (!state.settings.phoneId) { showToast('Error', 'Add Phone Number ID in Settings first', true); return; }
 
   const resultEl = document.getElementById('send-result');
@@ -2452,16 +2471,7 @@ async function sendMessage() {
   }
 
   try {
-    const res = await fetch(`https://graph.facebook.com/v18.0/${state.settings.phoneId}/messages`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${state.settings.token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(body)
-    });
-
-    const data = await res.json();
+    const data = await waApi('/api/send-message', { payload: body });
 
     if (data.messages && data.messages[0]) {
       resultEl.innerHTML = `<span style="color:var(--accent)">✅ Message sent! ID: ${data.messages[0].id}</span>`;
@@ -2541,7 +2551,7 @@ async function loadSettingsFromSupabase() {
   }
   const { data, error } = await sb
     .from('businesses')
-    .select('whatsapp_access_token, whatsapp_phone_number_id, whatsapp_waba_id')
+    .select('whatsapp_phone_number_id, whatsapp_waba_id')
     .eq('id', state.profile.business_id)
     .single();
 
@@ -2551,14 +2561,12 @@ async function loadSettingsFromSupabase() {
   }
 
   state.settings = {
-    token: data.whatsapp_access_token || '',
     phoneId: data.whatsapp_phone_number_id || '',
     wabaId: data.whatsapp_waba_id || ''
   };
 }
 
 async function saveSettings() {
-  const token = document.getElementById('cfg-token').value.trim();
   const phoneId = document.getElementById('cfg-phone-id').value.trim();
   const wabaId = document.getElementById('cfg-waba').value.trim();
 
@@ -2570,7 +2578,6 @@ async function saveSettings() {
   const { error } = await sb
     .from('businesses')
     .update({
-      whatsapp_access_token: token,
       whatsapp_phone_number_id: phoneId,
       whatsapp_waba_id: wabaId
     })
@@ -2581,13 +2588,12 @@ async function saveSettings() {
     return;
   }
 
-  state.settings = { token, phoneId, wabaId };
+  state.settings = { phoneId, wabaId };
   loadSettingsDisplay();
   showToast('Saved', 'API credentials saved successfully');
 }
 
 function loadSavedSettings() {
-  if (state.settings.token) document.getElementById('cfg-token').value = state.settings.token;
   if (state.settings.phoneId) document.getElementById('cfg-phone-id').value = state.settings.phoneId;
   if (state.settings.wabaId) document.getElementById('cfg-waba').value = state.settings.wabaId;
   loadSettingsDisplay();
@@ -2596,11 +2602,11 @@ function loadSavedSettings() {
 function loadSettingsDisplay() {
   document.getElementById('display-phone-id').textContent = state.settings.phoneId || 'Not configured';
   document.getElementById('display-waba-id').textContent = state.settings.wabaId || 'Not configured';
-  document.getElementById('display-token').textContent = state.settings.token ? state.settings.token.substring(0, 20) + '...' : 'Not configured';
+  document.getElementById('display-token').textContent = '\ud83d\udd12 Secured on server';
 }
 
 async function testConnection() {
-  if (!state.settings.token || !state.settings.phoneId) {
+  if (!state.settings.phoneId) {
     showToast('Error', 'Save credentials first', true);
     return;
   }
@@ -2608,10 +2614,7 @@ async function testConnection() {
   el.style.display = 'block';
   el.innerHTML = '<span style="color:var(--text2)">Testing connection...</span>';
   try {
-    const res = await fetch(`https://graph.facebook.com/v18.0/${state.settings.phoneId}`, {
-      headers: { 'Authorization': `Bearer ${state.settings.token}` }
-    });
-    const data = await res.json();
+    const data = await waApi('/api/test-connection', {});
     if (data.id) {
       el.innerHTML = `<span style="color:var(--accent)">✅ Connected! Number: ${data.display_phone_number || data.id}</span>`;
       showToast('Connected!', 'WhatsApp API is working');
@@ -2957,7 +2960,7 @@ async function inboxSendMessage() {
   const input = document.getElementById('inbox-msg-input');
   const text = input.value.trim();
   if (!text) return;
-  if (!state.settings.token || !state.settings.phoneId) {
+  if (!state.settings.phoneId) {
     showToast('Error', 'Configure API credentials in Settings first', true);
     return;
   }
@@ -2969,20 +2972,14 @@ async function inboxSendMessage() {
   inboxAddMessage(phone, { type: 'outgoing', text, ts: Date.now() });
 
   try {
-    const res = await fetch(`https://graph.facebook.com/v18.0/${state.settings.phoneId}/messages`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${state.settings.token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
+    const data = await waApi('/api/send-message', {
+      payload: {
         messaging_product: 'whatsapp',
         to: phone,
         type: 'text',
         text: { body: text }
-      })
+      }
     });
-    const data = await res.json();
     if (data.messages && data.messages[0]) {
       addActivity(`Reply sent to +${phone}`);
       showToast('Sent!', 'Reply delivered via WhatsApp');
