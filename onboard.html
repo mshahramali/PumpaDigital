@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Connect WhatsApp — PUMPA CRM</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; min-height: 100dvh; display: grid; place-items: center;
+    background: #0b0f0d; color: #e8f0ea;
+    font: 16px/1.55 -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  .card {
+    width: min(440px, 92vw); padding: 40px 36px;
+    background: #11170f; border: 1px solid #1f2a1e; border-radius: 14px;
+  }
+  h1 { margin: 0 0 6px; font-size: 22px; letter-spacing: -.01em; }
+  p.sub { margin: 0 0 28px; color: #7f8f83; font-size: 14px; }
+  label { display: block; font-size: 11px; letter-spacing: .08em;
+          text-transform: uppercase; color: #7f8f83; margin: 18px 0 6px; }
+  input {
+    width: 100%; box-sizing: border-box; padding: 11px 13px;
+    background: #0b0f0d; border: 1px solid #24301f; border-radius: 8px;
+    color: #e8f0ea; font-size: 15px;
+  }
+  input:focus { outline: none; border-color: #2ecc71; }
+  button {
+    width: 100%; margin-top: 26px; padding: 13px;
+    background: #21c45d; color: #041007; border: 0; border-radius: 8px;
+    font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  #status { margin-top: 18px; font-size: 14px; min-height: 20px; }
+  .ok  { color: #21c45d; }
+  .err { color: #ff6b6b; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Connect WhatsApp</h1>
+  <p class="sub">Link your WhatsApp Business account to PUMPA CRM.</p>
+
+  <label for="business_name">Business name</label>
+  <input id="business_name" placeholder="Your business name" />
+
+  <label for="email">Your email</label>
+  <input id="email" type="email" placeholder="you@example.com" />
+
+  <button id="connect" disabled>Connect WhatsApp</button>
+  <div id="status"></div>
+</div>
+
+<script>
+// ── CONFIG ───────────────────────────────────────────────────
+// app_id from your dashboard URL. config_id from Embedded Signup Builder.
+const APP_ID    = '2142544706526194';
+const CONFIG_ID = '1694672291449164';   // from Embedded Signup Builder
+
+// ⚠️ BEFORE THIS WORKS:
+//    Facebook Login for Business → Settings, add zyvonai.com to BOTH:
+//      • Allowed Domains for the JavaScript SDK
+//      • Valid OAuth Redirect URIs
+//    Meta's doc is explicit — without both, the callback never fires
+//    and you will spend a day debugging code that is fine.
+// ─────────────────────────────────────────────────────────────
+
+const statusEl = document.getElementById('status');
+const btn      = document.getElementById('connect');
+const say = (msg, cls = '') => { statusEl.textContent = msg; statusEl.className = cls; };
+
+// This is the piece you don't have today. The popup posts back here.
+// The hosted business.facebook.com link has no parent window of yours,
+// so nothing is ever posted, and PUMPA never learns anyone signed up.
+let session = null;
+
+window.addEventListener('message', (event) => {
+  if (!/^https:\/\/(www\.)?facebook\.com$/.test(event.origin)) return;
+  let data;
+  try { data = JSON.parse(event.data); } catch { return; }
+  if (data.type !== 'WA_EMBEDDED_SIGNUP') return;
+
+  if (data.event === 'FINISH') {
+    session = data.data;                    // { waba_id, phone_number_id }
+  } else if (data.event === 'CANCEL') {
+    say('Cancelled at: ' + data.data.current_step, 'err');
+  } else if (data.event === 'ERROR') {
+    say(data.data.error_message || 'Signup error', 'err');
+  }
+});
+
+window.fbAsyncInit = function () {
+  FB.init({ appId: APP_ID, autoLogAge: true, xfbml: false, version: 'v25.0' });
+  btn.disabled = false;
+};
+
+btn.addEventListener('click', () => {
+  const email         = document.getElementById('email').value.trim();
+  const business_name = document.getElementById('business_name').value.trim();
+  if (!email) return say('Email required', 'err');
+
+  session = null;
+  say('Opening WhatsApp signup…');
+
+  FB.login(
+    (response) => {
+      const code = response?.authResponse?.code;
+      if (!code)  return say('Signup was not completed.', 'err');
+      if (!session) return say('No session info returned. Check Allowed Domains.', 'err');
+      finish(code, email, business_name);
+    },
+    {
+      config_id: CONFIG_ID,
+      response_type: 'code',
+      override_default_response_type: true,
+      // Copied verbatim from the extras in your Meta-hosted landing page URL.
+      // featureType = Coexistence: client connects an existing WhatsApp
+      // Business App number, which is what Arafat did.
+      extras: {
+        setup: {},
+        featureType: 'whatsapp_business_app_onboarding',
+        sessionInfoVersion: '3',
+        version: 'v4',
+      },
+    }
+  );
+});
+
+async function finish(code, email, business_name) {
+  say('Connecting to PUMPA…');
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/onboard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, ...session, email, business_name }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Onboarding failed');
+    say('Connected — ' + j.display_number + '. Check your email to sign in.', 'ok');
+  } catch (e) {
+    say(e.message, 'err');
+    btn.disabled = false;
+  }
+}
+</script>
+<script async defer crossorigin="anonymous" src="https://connect.facebook.net/en_US/sdk.js"></script>
+</body>
+</html>
