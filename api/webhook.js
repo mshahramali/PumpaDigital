@@ -49,7 +49,19 @@ async function provisionPartner(wabaId, ownerName) {
     });
     console.log('PROVISION: business row →', up.status, (await up.text()).slice(0, 300));
 
-    // 4. WhatsApp the admin: "new client!"
+    // 4. Try to create the client's login + email a magic link.
+    //    This only completes if the browser already stored their email;
+    //    if not, /api/pending-signup will trigger it when the email arrives.
+    try {
+      await fetch(`https://pumpa-whatsapp-crm.vercel.app/api/complete-login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ waba_id: wabaId }),
+      });
+      console.log('PROVISION: complete-login triggered for', wabaId);
+    } catch (e) { console.error('complete-login trigger failed:', e.message); }
+
+    // 5. WhatsApp the admin (you): "new client!"
     if (process.env.ADMIN_WHATSAPP_NUMBER && process.env.PUMPA_PHONE_NUMBER_ID) {
       await fetch(`https://graph.facebook.com/v18.0/${process.env.PUMPA_PHONE_NUMBER_ID}/messages`, {
         method: 'POST',
