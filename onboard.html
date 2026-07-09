@@ -116,9 +116,9 @@ btn.addEventListener('click', () => {
       // Coexistence returns a code too, but our onboarding runs off the
       // webhook, so we don't need it. Success = the popup gave us a session.
       if (!session) {
-        return say('Signup was not completed. If you finished on WhatsApp, you\'ll still receive your login email shortly.', 'err');
+        return say('Signup was not completed. If you finished on WhatsApp, we\'ll still set up your account and send your login details on WhatsApp shortly.', 'err');
       }
-      say('✅ Connected! Setting up your account — check your email for a login link in a minute.', 'ok');
+      say('✅ Connected! We\'re setting up your account — you\'ll receive your login details on WhatsApp shortly.', 'ok');
     },
     {
       config_id: CONFIG_ID,
@@ -149,7 +149,7 @@ async function storePendingSignup(wabaId) {
       }),
     });
   } catch (e) {
-    // Non-fatal: the client still connected; login email just may be delayed.
+    // Non-fatal: the client still connected; login setup just may be delayed.
     console.error('pending-signup store failed', e);
   }
 }
