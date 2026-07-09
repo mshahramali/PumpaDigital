@@ -6,6 +6,66 @@
 const VERIFY_TOKEN = "pumpa_webhook_2026";
 const SUPABASE_URL = "https://dpeszhbdgxevlkrfllrc.supabase.co";
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+
+// ── AUTOMATIC ONBOARDING (webhook-driven) ─────────────────────────────
+// When a client completes Embedded Signup, Meta fires account_update with
+// event PARTNER_ADDED and their waba_id. This provisions them fully —
+// subscribe, fetch number, create business, notify admin — with NO
+// dependency on the client's browser. The browser path (/api/onboard)
+// still runs when it can, and adds the login; both are idempotent on
+// whatsapp_waba_id, so double-provisioning is harmless.
+async function provisionPartner(wabaId, ownerName) {
+  try {
+    // 1. Subscribe our app to their WABA (the step done by hand for Arafat)
+    const sub = await fetch(`https://graph.facebook.com/v18.0/${wabaId}/subscribed_apps`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${WHATSAPP_TOKEN}` }
+    });
+    console.log('PROVISION: subscribed_apps →', sub.status);
+
+    // 2. Read their phone number
+    const pnRes = await fetch(`https://graph.facebook.com/v18.0/${wabaId}/phone_numbers`, {
+      headers: { 'Authorization': `Bearer ${WHATSAPP_TOKEN}` }
+    });
+    const pn = await pnRes.json();
+    const phone = pn.data && pn.data[0];
+    if (!phone) { console.error('PROVISION: no phone numbers on WABA', wabaId, JSON.stringify(pn).slice(0, 300)); return; }
+
+    // 3. Create/refresh the business row (idempotent — unique on whatsapp_waba_id)
+    const up = await fetch(`${SUPABASE_URL}/rest/v1/businesses?on_conflict=whatsapp_waba_id`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates,return=representation'
+      },
+      body: JSON.stringify({
+        name: ownerName || phone.verified_name || 'New PUMPA client',
+        whatsapp_waba_id: wabaId,
+        whatsapp_phone_number_id: phone.id,
+        whatsapp_display_name: phone.display_phone_number
+      })
+    });
+    console.log('PROVISION: business row →', up.status, (await up.text()).slice(0, 300));
+
+    // 4. WhatsApp the admin: "new client!"
+    if (process.env.ADMIN_WHATSAPP_NUMBER && process.env.PUMPA_PHONE_NUMBER_ID) {
+      await fetch(`https://graph.facebook.com/v18.0/${process.env.PUMPA_PHONE_NUMBER_ID}/messages`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${WHATSAPP_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: process.env.ADMIN_WHATSAPP_NUMBER,
+          type: 'text',
+          text: { body: `🎉 New client connected to PUMPA\n${ownerName || phone.verified_name || ''}\n${phone.display_phone_number}\nWABA: ${wabaId}` }
+        })
+      });
+    }
+  } catch (e) {
+    console.error('PROVISION error:', e.message);
+  }
+}
 
 // Resolve which business owns a given phone_number_id
 async function getBusinessId(phoneNumberId) {
@@ -154,6 +214,15 @@ export default async function handler(req, res) {
           const field = change.field;
           const value = change.value || {};
           const phoneNumberId = value.metadata?.phone_number_id || null;
+
+          // ── New client connected via Embedded Signup → provision automatically
+          if (field === 'account_update' &&
+              (value.event === 'PARTNER_ADDED' || value.event === 'PARTNER_APP_INSTALLED')) {
+            const newWabaId = value.waba_info?.waba_id;
+            const ownerName = value.waba_info?.owner_business_name || null;
+            console.log('PARTNER event:', value.event, 'waba:', newWabaId);
+            if (newWabaId) await provisionPartner(newWabaId, ownerName);
+          }
 
           // Standard incoming customer messages
           if (field === 'messages' || value.messages || value.statuses) {
