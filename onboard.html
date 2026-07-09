@@ -84,6 +84,9 @@ window.addEventListener('message', (event) => {
   if (String(data.event || '').startsWith('FINISH')) {
     // Coexistence flows may use FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING
     session = data.data;                    // { waba_id, phone_number_id }
+    // Hand the email to our server, keyed by waba_id, so the webhook
+    // (which never receives the email from Meta) can create the login.
+    storePendingSignup(session.waba_id);
   } else if (data.event === 'CANCEL') {
     say('Cancelled at: ' + (data.data?.current_step || 'start'), 'err');
   } else if (data.event === 'ERROR') {
@@ -101,23 +104,26 @@ btn.addEventListener('click', () => {
   const business_name = document.getElementById('business_name').value.trim();
   if (!email) return say('Email required', 'err');
 
+  // Remember what the user typed; used by storePendingSignup once we have a waba_id.
+  window._pumpaEmail = email;
+  window._pumpaBusinessName = business_name;
+
   session = null;
   say('Opening WhatsApp signup…');
 
   FB.login(
     (response) => {
-      const code = response?.authResponse?.code;
-      if (!code)  return say('Signup was not completed.', 'err');
-      if (!session) return say('No session info returned. Check Allowed Domains.', 'err');
-      finish(code, email, business_name);
+      // Coexistence returns a code too, but our onboarding runs off the
+      // webhook, so we don't need it. Success = the popup gave us a session.
+      if (!session) {
+        return say('Signup was not completed. If you finished on WhatsApp, you\'ll still receive your login email shortly.', 'err');
+      }
+      say('✅ Connected! Setting up your account — check your email for a login link in a minute.', 'ok');
     },
     {
       config_id: CONFIG_ID,
       response_type: 'code',
       override_default_response_type: true,
-      // Copied verbatim from the extras in your Meta-hosted landing page URL.
-      // featureType = Coexistence: client connects an existing WhatsApp
-      // Business App number, which is what Arafat did.
       extras: {
         setup: {},
         featureType: 'whatsapp_business_app_onboarding',
@@ -128,21 +134,23 @@ btn.addEventListener('click', () => {
   );
 });
 
-async function finish(code, email, business_name) {
-  say('Connecting to PUMPA…');
-  btn.disabled = true;
+// Store {waba_id, email, business_name} so the webhook can create the login.
+// Safe to call more than once; the endpoint upserts on waba_id.
+async function storePendingSignup(wabaId) {
+  if (!wabaId) return;
   try {
-    const r = await fetch('/api/onboard', {
+    await fetch('/api/pending-signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, ...session, email, business_name }),
+      body: JSON.stringify({
+        waba_id: wabaId,
+        email: window._pumpaEmail || '',
+        business_name: window._pumpaBusinessName || '',
+      }),
     });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.error || 'Onboarding failed');
-    say('Connected — ' + j.display_number + '. Check your email to sign in.', 'ok');
   } catch (e) {
-    say(e.message, 'err');
-    btn.disabled = false;
+    // Non-fatal: the client still connected; login email just may be delayed.
+    console.error('pending-signup store failed', e);
   }
 }
 </script>
