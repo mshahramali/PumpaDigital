@@ -75,17 +75,19 @@ const say = (msg, cls = '') => { statusEl.textContent = msg; statusEl.className 
 let session = null;
 
 window.addEventListener('message', (event) => {
-  if (!/^https:\/\/(www\.)?facebook\.com$/.test(event.origin)) return;
+  // Meta posts from facebook.com, www., web. (common in Pakistan), or business.
+  if (!/^https:\/\/([a-z0-9-]+\.)?facebook\.com$/.test(event.origin)) return;
   let data;
   try { data = JSON.parse(event.data); } catch { return; }
   if (data.type !== 'WA_EMBEDDED_SIGNUP') return;
 
-  if (data.event === 'FINISH') {
+  if (String(data.event || '').startsWith('FINISH')) {
+    // Coexistence flows may use FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING
     session = data.data;                    // { waba_id, phone_number_id }
   } else if (data.event === 'CANCEL') {
-    say('Cancelled at: ' + data.data.current_step, 'err');
+    say('Cancelled at: ' + (data.data?.current_step || 'start'), 'err');
   } else if (data.event === 'ERROR') {
-    say(data.data.error_message || 'Signup error', 'err');
+    say(data.data?.error_message || 'Signup error', 'err');
   }
 });
 
