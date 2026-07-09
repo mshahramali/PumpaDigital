@@ -1,9 +1,20 @@
 // POST /api/complete-login  { waba_id }
-// Creates the client's Supabase login and emails a magic link — but ONLY
-// when BOTH exist: the provisioned business (from the webhook) AND the
-// pending email (from the browser). Safe to call many times; it checks
-// whether a profile already exists and does nothing if so.
+// Creates the client's Supabase login with a PASSWORD (manual-onboarding mode).
+// Runs only when BOTH exist: the provisioned business (from the webhook) AND
+// the pending email (from the browser). Idempotent — safe to call many times.
+//
+// What it does now (password mode, no email dependency):
+//   - creates the auth user with a generated password, OR
+//   - if the user already exists, resets their password to a fresh one
+//   - links their profile to the business (role: client)
+//   - LOGS the email + password to the Vercel function log, and RETURNS them
+//     in the JSON response, so you can copy the credentials and send them to
+//     the client yourself (e.g. over WhatsApp). No magic-link email needed.
+//
+// The client logs in at your login page with email + password.
 // No npm packages — raw fetch against Supabase Auth Admin + REST.
+
+const crypto = require('crypto');
 
 const SUPABASE_URL = "https://dpeszhbdgxevlkrfllrc.supabase.co";
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -19,6 +30,15 @@ async function sb(path, opts = {}) {
     },
   });
   return r;
+}
+
+// Readable but strong: 3 short groups, e.g. "Pumpa-7F2K-9QXM". Easy to relay
+// over WhatsApp, hard to guess. ~10^12 space in the random part.
+function makePassword() {
+  const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no ambiguous 0/O/1/I/l
+  const grp = (n) =>
+    Array.from({ length: n }, () => abc[crypto.randomInt(abc.length)]).join('');
+  return `Pumpa-${grp(4)}-${grp(4)}`;
 }
 
 module.exports = async (req, res) => {
@@ -37,55 +57,61 @@ module.exports = async (req, res) => {
     const ps = (await psRes.json())[0];
     if (!ps || !ps.email) return res.status(200).json({ ok: false, reason: 'email not captured yet' });
 
-    // 3. Already linked? Then we're done — don't re-create.
-    //    Find the user by email, see if their profile points at this business.
-    const usersRes = await sb(`/auth/v1/admin/users?email=${encodeURIComponent(ps.email)}`);
+    const email = ps.email;
+    const password = makePassword();
+
+    // 3. Does the user already exist?
+    const usersRes = await sb(`/auth/v1/admin/users?email=${encodeURIComponent(email)}`);
     const usersJson = await usersRes.json();
     let userId = usersJson?.users?.[0]?.id || null;
 
     if (!userId) {
-      // Create the auth user with business_id in metadata (the trigger links the profile).
+      // Create the auth user WITH a password and pre-confirmed email so they
+      // can log in immediately (no email verification step).
       const createRes = await sb(`/auth/v1/admin/users`, {
         method: 'POST',
         body: JSON.stringify({
-          email: ps.email,
+          email,
+          password,
           email_confirm: true,
           user_metadata: { business_id: biz.id },
         }),
       });
       const created = await createRes.json();
       userId = created?.id || created?.user?.id || null;
+      console.log('COMPLETE-LOGIN: created user', email, createRes.status);
+    } else {
+      // User already exists → reset their password to this fresh one so the
+      // credentials you hand out always work (safe to re-run).
+      const updRes = await sb(`/auth/v1/admin/users/${userId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ password, email_confirm: true }),
+      });
+      console.log('COMPLETE-LOGIN: reset password for', email, updRes.status);
     }
 
     if (userId) {
-      // Ensure the profile is linked to THIS business (overrides any trigger default).
+      // Ensure the profile is linked to THIS business (role: client).
       await sb(`/rest/v1/profiles?on_conflict=id`, {
         method: 'POST',
         headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
         body: JSON.stringify({ id: userId, business_id: biz.id, role: 'client' }),
       });
+    } else {
+      console.log('COMPLETE-LOGIN: could not resolve user id for', email);
+      return res.status(200).json({ ok: false, reason: 'user not created' });
     }
 
-    // 4. Generate a magic link and let Supabase email it (built-in SMTP for now).
-    const linkRes = await sb(`/auth/v1/admin/generate_link`, {
-      method: 'POST',
-      body: JSON.stringify({
-        type: 'magiclink',
-        email: ps.email,
-        // where the client lands after clicking the link:
-        redirect_to: 'https://zyvonai.com/app.html',
-      }),
-    });
-    const linkJson = await linkRes.json();
-    // Supabase emails automatically when SMTP is configured; the action_link
-    // is also returned so you can resend manually if needed.
-    console.log('COMPLETE-LOGIN: link generated for', ps.email, linkRes.status);
+    // 4. Surface the credentials. THIS is what you copy from the Vercel log
+    //    (or read from the response) and send to the client over WhatsApp.
+    console.log('COMPLETE-LOGIN: CREDENTIALS →', email, '|', password);
 
     return res.status(200).json({
       ok: true,
       business_id: biz.id,
-      email: ps.email,
-      action_link: linkJson?.properties?.action_link || linkJson?.action_link || null,
+      login_email: email,
+      login_password: password,
+      login_url: 'https://zyvonai.com/login.html',
     });
   } catch (err) {
     console.error('complete-login error:', err.message);
