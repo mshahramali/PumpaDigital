@@ -3,13 +3,23 @@
 // Runs only when BOTH exist: the provisioned business (from the webhook) AND
 // the pending email (from the browser). Idempotent — safe to call many times.
 //
-// What it does now (password mode, no email dependency):
-//   - creates the auth user with a generated password, OR
-//   - if the user already exists, resets their password to a fresh one
-//   - links their profile to the business (role: client)
-//   - LOGS the email + password to the Vercel function log, and RETURNS them
-//     in the JSON response, so you can copy the credentials and send them to
-//     the client yourself (e.g. over WhatsApp). No magic-link email needed.
+// IDEMPOTENCY FIX: multiple webhook events can trigger this for the same
+// signup (PARTNER_ADDED can fire more than once). Earlier version reset the
+// password on every call, so the LAST log line had the only valid password —
+// easy to copy the wrong one. Now: a password is generated exactly ONCE, the
+// first time a user+business link is created. Every call after that is a
+// silent no-op that changes nothing and logs nothing new.
+//
+// What it does:
+//   - first call for this waba_id: creates the auth user with a generated
+//     password, links their profile to the business, logs + returns the
+//     credentials (the ONLY time they're ever shown).
+//   - every later call for the same waba_id: detects the profile is already
+//     linked to this business, does nothing, returns { ok: true, already: true }.
+//   - edge case — user exists in Supabase but was never linked to THIS
+//     business (e.g. partial failure last time): links the profile, but does
+//     NOT touch their password, since we don't know if it was already handed
+//     to a client.
 //
 // The client logs in at your login page with email + password.
 // No npm packages — raw fetch against Supabase Auth Admin + REST.
@@ -58,16 +68,32 @@ module.exports = async (req, res) => {
     if (!ps || !ps.email) return res.status(200).json({ ok: false, reason: 'email not captured yet' });
 
     const email = ps.email;
-    const password = makePassword();
 
     // 3. Does the user already exist?
     const usersRes = await sb(`/auth/v1/admin/users?email=${encodeURIComponent(email)}`);
     const usersJson = await usersRes.json();
     let userId = usersJson?.users?.[0]?.id || null;
 
+    // 4. If the user exists, check whether their profile is ALREADY linked
+    //    to THIS business. If so, this signup was already fully completed —
+    //    do nothing. This is the fix: no password reset on repeat calls.
+    if (userId) {
+      const profRes = await sb(`/rest/v1/profiles?id=eq.${userId}&select=business_id&limit=1`);
+      const prof = (await profRes.json())[0];
+      if (prof && prof.business_id === biz.id) {
+        console.log('COMPLETE-LOGIN: already provisioned, skipping →', email);
+        return res.status(200).json({ ok: true, already: true, business_id: biz.id, login_email: email });
+      }
+    }
+
+    let password = null;
+    let isNewUser = false;
+
     if (!userId) {
-      // Create the auth user WITH a password and pre-confirmed email so they
-      // can log in immediately (no email verification step).
+      // Genuinely new — create the auth user WITH a password and
+      // pre-confirmed email so they can log in immediately.
+      password = makePassword();
+      isNewUser = true;
       const createRes = await sb(`/auth/v1/admin/users`, {
         method: 'POST',
         body: JSON.stringify({
@@ -80,39 +106,45 @@ module.exports = async (req, res) => {
       const created = await createRes.json();
       userId = created?.id || created?.user?.id || null;
       console.log('COMPLETE-LOGIN: created user', email, createRes.status);
-    } else {
-      // User already exists → reset their password to this fresh one so the
-      // credentials you hand out always work (safe to re-run).
-      const updRes = await sb(`/auth/v1/admin/users/${userId}`, {
-        method: 'PUT',
-        body: JSON.stringify({ password, email_confirm: true }),
-      });
-      console.log('COMPLETE-LOGIN: reset password for', email, updRes.status);
     }
+    // else: user exists but wasn't linked to this business yet (edge case —
+    // e.g. a prior call created the user but crashed before linking the
+    // profile). We link below WITHOUT touching their password, since it may
+    // already have been sent to a client.
 
-    if (userId) {
-      // Ensure the profile is linked to THIS business (role: client).
-      await sb(`/rest/v1/profiles?on_conflict=id`, {
-        method: 'POST',
-        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-        body: JSON.stringify({ id: userId, business_id: biz.id, role: 'client' }),
-      });
-    } else {
+    if (!userId) {
       console.log('COMPLETE-LOGIN: could not resolve user id for', email);
       return res.status(200).json({ ok: false, reason: 'user not created' });
     }
 
-    // 4. Surface the credentials. THIS is what you copy from the Vercel log
-    //    (or read from the response) and send to the client over WhatsApp.
-    console.log('COMPLETE-LOGIN: CREDENTIALS →', email, '|', password);
-
-    return res.status(200).json({
-      ok: true,
-      business_id: biz.id,
-      login_email: email,
-      login_password: password,
-      login_url: 'https://zyvonai.com/login.html',
+    // 5. Link the profile to THIS business (role: client).
+    await sb(`/rest/v1/profiles?on_conflict=id`, {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ id: userId, business_id: biz.id, role: 'client' }),
     });
+
+    if (isNewUser) {
+      // 6. Surface the credentials — this is the ONLY time they're ever
+      //    shown. Copy from this log line and send to the client on WhatsApp.
+      console.log('COMPLETE-LOGIN: CREDENTIALS →', email, '|', password);
+      return res.status(200).json({
+        ok: true,
+        business_id: biz.id,
+        login_email: email,
+        login_password: password,
+        login_url: 'https://zyvonai.com/login.html',
+      });
+    } else {
+      // Existing user, just newly linked — no new password to show.
+      console.log('COMPLETE-LOGIN: linked existing user to business, no password change →', email);
+      return res.status(200).json({
+        ok: true,
+        linked_existing: true,
+        business_id: biz.id,
+        login_email: email,
+      });
+    }
   } catch (err) {
     console.error('complete-login error:', err.message);
     return res.status(500).json({ error: err.message });
