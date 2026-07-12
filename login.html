@@ -67,28 +67,6 @@
     margin-bottom: 28px;
   }
 
-  .tabs {
-    display: flex;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 4px;
-    margin-bottom: 28px;
-  }
-  .tab {
-    flex: 1;
-    text-align: center;
-    padding: 9px;
-    border-radius: 7px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    color: var(--text2);
-    transition: all 0.2s;
-    user-select: none;
-  }
-  .tab.active { background: var(--accent); color: #000; }
-
   .field { margin-bottom: 16px; }
   .field label {
     display: block;
@@ -151,6 +129,17 @@
   }
   .forgot:hover { color: var(--accent); }
 
+  .newclient {
+    text-align: center;
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text3);
+    line-height: 1.6;
+  }
+  .newclient a { color: var(--accent); text-decoration: none; }
+
   .hidden { display: none !important; }
 </style>
 </head>
@@ -159,11 +148,6 @@
 <div class="box">
   <div class="logo">PUMPA <span>CRM</span></div>
   <div class="sub">WhatsApp Marketing Platform</div>
-
-  <div class="tabs">
-    <div class="tab active" id="tab-signin" onclick="switchTab('signin')">Sign In</div>
-    <div class="tab" id="tab-signup" onclick="switchTab('signup')">Sign Up</div>
-  </div>
 
   <div class="msg" id="msg"></div>
 
@@ -179,28 +163,7 @@
     </div>
     <button class="btn" id="btn-signin" onclick="handleSignIn()">Sign In →</button>
     <div class="forgot" onclick="switchTab('forgot')">Forgot password?</div>
-  </div>
-
-  <!-- SIGN UP FORM -->
-  <div id="form-signup" class="hidden">
-    <div class="field">
-      <label>Full Name</label>
-      <input type="text" id="su-name" placeholder="Your name" autocomplete="name">
-    </div>
-    <div class="field">
-      <label>Business Name</label>
-      <input type="text" id="su-business" placeholder="e.g. Kapacious" autocomplete="organization">
-    </div>
-    <div class="field">
-      <label>Email</label>
-      <input type="email" id="su-email" placeholder="you@business.com" autocomplete="email">
-    </div>
-    <div class="field">
-      <label>Password</label>
-      <input type="password" id="su-password" placeholder="Create a password" autocomplete="new-password">
-      <div class="field-hint">Min 8 characters, with uppercase, lowercase, a number and a symbol.</div>
-    </div>
-    <button class="btn" id="btn-signup" onclick="handleSignUp()">Create Account →</button>
+    <div class="newclient">New to PUMPA? Accounts are created when you<br><a href="/onboard.html">connect your WhatsApp Business account →</a></div>
   </div>
 
   <!-- FORGOT PASSWORD FORM -->
@@ -228,21 +191,14 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
   }
 })();
 
-// ===== TAB SWITCHING =====
+// ===== VIEW SWITCHING (sign in <-> forgot password) =====
 function switchTab(tab) {
   document.getElementById('form-signin').classList.add('hidden');
-  document.getElementById('form-signup').classList.add('hidden');
   document.getElementById('form-forgot').classList.add('hidden');
-  document.getElementById('tab-signin').classList.remove('active');
-  document.getElementById('tab-signup').classList.remove('active');
   hideMsg();
 
   if (tab === 'signin') {
     document.getElementById('form-signin').classList.remove('hidden');
-    document.getElementById('tab-signin').classList.add('active');
-  } else if (tab === 'signup') {
-    document.getElementById('form-signup').classList.remove('hidden');
-    document.getElementById('tab-signup').classList.add('active');
   } else if (tab === 'forgot') {
     document.getElementById('form-forgot').classList.remove('hidden');
   }
@@ -280,76 +236,11 @@ async function handleSignIn() {
   btn.textContent = 'Sign In →';
 
   if (error) {
-    if (error.message.toLowerCase().includes('email not confirmed')) {
-      showMsg('Please confirm your email before signing in. Check your inbox for the verification link.', 'error');
-    } else {
-      showMsg('Invalid email or password.', 'error');
-    }
+    showMsg('Invalid email or password.', 'error');
     return;
   }
 
   window.location.href = 'app.html';
-}
-
-// ===== SIGN UP =====
-function isStrongPassword(pw) {
-  return pw.length >= 8 &&
-         /[a-z]/.test(pw) &&
-         /[A-Z]/.test(pw) &&
-         /[0-9]/.test(pw) &&
-         /[^a-zA-Z0-9]/.test(pw);
-}
-
-async function handleSignUp() {
-  const fullName = document.getElementById('su-name').value.trim();
-  const businessName = document.getElementById('su-business').value.trim();
-  const email = document.getElementById('su-email').value.trim();
-  const password = document.getElementById('su-password').value;
-  const btn = document.getElementById('btn-signup');
-
-  if (!fullName || !businessName || !email || !password) {
-    showMsg('Please fill in all fields.', 'error');
-    return;
-  }
-
-  if (!isStrongPassword(password)) {
-    showMsg('Password must be at least 8 characters and include uppercase, lowercase, a number, and a symbol.', 'error');
-    return;
-  }
-
-  btn.disabled = true;
-  btn.textContent = 'Creating account...';
-  hideMsg();
-
-  const { data, error } = await sb.auth.signUp({
-    email,
-    password,
-    options: {
-      data: {
-        full_name: fullName,
-        business_name: businessName
-      },
-      emailRedirectTo: window.location.origin + '/login.html'
-    }
-  });
-
-  btn.disabled = false;
-  btn.textContent = 'Create Account →';
-
-  if (error) {
-    if (error.message.toLowerCase().includes('already registered') || error.message.toLowerCase().includes('already exists')) {
-      showMsg('An account with this email already exists. Try signing in instead.', 'error');
-    } else {
-      showMsg(error.message, 'error');
-    }
-    return;
-  }
-
-  showMsg('Account created! Please check your email (' + email + ') and click the confirmation link before signing in.', 'success');
-  document.getElementById('su-name').value = '';
-  document.getElementById('su-business').value = '';
-  document.getElementById('su-email').value = '';
-  document.getElementById('su-password').value = '';
 }
 
 // ===== FORGOT PASSWORD =====
@@ -385,7 +276,6 @@ async function handleForgotPassword() {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
   if (!document.getElementById('form-signin').classList.contains('hidden')) handleSignIn();
-  else if (!document.getElementById('form-signup').classList.contains('hidden')) handleSignUp();
   else if (!document.getElementById('form-forgot').classList.contains('hidden')) handleForgotPassword();
 });
 </script>

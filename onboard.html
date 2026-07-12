@@ -25,6 +25,7 @@
     color: #e8f0ea; font-size: 15px;
   }
   input:focus { outline: none; border-color: #2ecc71; }
+  .hint { font-size: 11px; color: #55655a; margin-top: 6px; }
   button {
     width: 100%; margin-top: 26px; padding: 13px;
     background: #21c45d; color: #041007; border: 0; border-radius: 8px;
@@ -34,6 +35,7 @@
   #status { margin-top: 18px; font-size: 14px; min-height: 20px; }
   .ok  { color: #21c45d; }
   .err { color: #ff6b6b; }
+  .ok a { color: #21c45d; }
 </style>
 </head>
 <body>
@@ -46,6 +48,10 @@
 
   <label for="email">Your email</label>
   <input id="email" type="email" placeholder="you@example.com" />
+
+  <label for="password">Choose a password</label>
+  <input id="password" type="password" placeholder="You'll use this to log in" autocomplete="new-password" />
+  <div class="hint">Min 8 characters, with uppercase, lowercase, a number and a symbol.</div>
 
   <button id="connect" disabled>Connect WhatsApp</button>
   <div id="status"></div>
@@ -67,11 +73,19 @@ const CONFIG_ID = '1694672291449164';   // from Embedded Signup Builder
 
 const statusEl = document.getElementById('status');
 const btn      = document.getElementById('connect');
-const say = (msg, cls = '') => { statusEl.textContent = msg; statusEl.className = cls; };
+const say = (msg, cls = '') => { statusEl.innerHTML = msg; statusEl.className = cls; };
 
-// This is the piece you don't have today. The popup posts back here.
-// The hosted business.facebook.com link has no parent window of yours,
-// so nothing is ever posted, and PUMPA never learns anyone signed up.
+function isStrongPassword(pw) {
+  return pw.length >= 8 &&
+         /[a-z]/.test(pw) &&
+         /[A-Z]/.test(pw) &&
+         /[0-9]/.test(pw) &&
+         /[^a-zA-Z0-9]/.test(pw);
+}
+
+// The popup posts back here. The hosted business.facebook.com link has no
+// parent window of yours, so nothing is ever posted, and PUMPA never learns
+// anyone signed up.
 let session = null;
 
 window.addEventListener('message', (event) => {
@@ -84,8 +98,8 @@ window.addEventListener('message', (event) => {
   if (String(data.event || '').startsWith('FINISH')) {
     // Coexistence flows may use FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING
     session = data.data;                    // { waba_id, phone_number_id }
-    // Hand the email to our server, keyed by waba_id, so the webhook
-    // (which never receives the email from Meta) can create the login.
+    // Hand the email + chosen password to our server, keyed by waba_id, so
+    // the webhook (which never receives them from Meta) can create the login.
     storePendingSignup(session.waba_id);
   } else if (data.event === 'CANCEL') {
     say('Cancelled at: ' + (data.data?.current_step || 'start'), 'err');
@@ -102,11 +116,17 @@ window.fbAsyncInit = function () {
 btn.addEventListener('click', () => {
   const email         = document.getElementById('email').value.trim();
   const business_name = document.getElementById('business_name').value.trim();
+  const password      = document.getElementById('password').value;
+
   if (!email) return say('Email required', 'err');
+  if (!isStrongPassword(password)) {
+    return say('Password must be at least 8 characters and include uppercase, lowercase, a number, and a symbol.', 'err');
+  }
 
   // Remember what the user typed; used by storePendingSignup once we have a waba_id.
   window._pumpaEmail = email;
   window._pumpaBusinessName = business_name;
+  window._pumpaPassword = password;
 
   session = null;
   say('Opening WhatsApp signup…');
@@ -116,9 +136,9 @@ btn.addEventListener('click', () => {
       // Coexistence returns a code too, but our onboarding runs off the
       // webhook, so we don't need it. Success = the popup gave us a session.
       if (!session) {
-        return say('Signup was not completed. If you finished on WhatsApp, we\'ll still set up your account and send your login details on WhatsApp shortly.', 'err');
+        return say('Signup was not completed. If you finished on WhatsApp, your account will still be set up — try logging in shortly with the email and password you entered.', 'err');
       }
-      say('✅ Connected! We\'re setting up your account — you\'ll receive your login details on WhatsApp shortly.', 'ok');
+      say('✅ Connected! Your account is being set up — in about a minute you can <a href="/login.html">log in</a> with the email and password you just chose.', 'ok');
     },
     {
       config_id: CONFIG_ID,
@@ -134,8 +154,10 @@ btn.addEventListener('click', () => {
   );
 });
 
-// Store {waba_id, email, business_name} so the webhook can create the login.
-// Safe to call more than once; the endpoint upserts on waba_id.
+// Store {waba_id, email, business_name, password} so the webhook can create
+// the login. Safe to call more than once; the endpoint upserts on waba_id.
+// The password is held server-side only until the account is created, then
+// wiped from the table.
 async function storePendingSignup(wabaId) {
   if (!wabaId) return;
   try {
@@ -146,8 +168,11 @@ async function storePendingSignup(wabaId) {
         waba_id: wabaId,
         email: window._pumpaEmail || '',
         business_name: window._pumpaBusinessName || '',
+        password: window._pumpaPassword || '',
       }),
     });
+    // Don't keep the password in memory longer than needed.
+    window._pumpaPassword = null;
   } catch (e) {
     // Non-fatal: the client still connected; login setup just may be delayed.
     console.error('pending-signup store failed', e);
