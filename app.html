@@ -1431,7 +1431,7 @@
       <div class="topbar">
         <div class="page-header" style="margin:0">
           <div class="page-title">Campaigns</div>
-          <div class="page-sub">Create and manage broadcast campaigns</div>
+          <div class="page-sub">Broadcast to segments, track delivery, retarget who didn't respond</div>
         </div>
         <div class="topbar-right">
           <button class="btn btn-primary btn-sm" onclick="openNewCampaign()">+ New Campaign</button>
@@ -1444,7 +1444,7 @@
           <div class="stat-value" style="font-size:24px" id="camp-total">0</div>
         </div>
         <div class="stat-card" style="padding:16px">
-          <div class="stat-label">Active</div>
+          <div class="stat-label">Sending</div>
           <div class="stat-value" style="font-size:24px;color:var(--accent)" id="camp-active">0</div>
         </div>
         <div class="stat-card" style="padding:16px">
@@ -1457,6 +1457,23 @@
         <div class="empty-state" style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:48px">
           <div class="empty-icon">📢</div>
           <p>No campaigns yet. Create your first campaign to get started.</p>
+        </div>
+      </div>
+
+      <!-- CAMPAIGN DETAIL (funnel + recipients) — hidden until a campaign is opened -->
+      <div id="campaign-detail" style="display:none;margin-top:20px">
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+            <div class="card-title" id="cd-name" style="margin:0">Campaign</div>
+            <button class="btn btn-outline btn-sm" onclick="closeCampaignDetail()">← Back to list</button>
+          </div>
+          <div id="cd-funnel" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px"></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Phone</th><th>Status</th><th>Clicked</th><th>Sent At</th></tr></thead>
+              <tbody id="cd-recipients"></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -1793,37 +1810,49 @@
 <div class="modal-overlay" id="modal-campaign">
   <div class="modal">
     <button class="modal-close" onclick="closeModal('modal-campaign')">✕</button>
-    <div class="modal-title">Create New Campaign</div>
+    <div class="modal-title">New Campaign</div>
+
     <div class="form-group">
-      <label class="form-label">Campaign Name *</label>
+      <label class="form-label">Campaign Name</label>
       <input type="text" class="form-input" id="camp-name" placeholder="Eid Collection Launch">
     </div>
+
     <div class="form-group">
-      <label class="form-label">Campaign Type</label>
-      <select class="form-select" id="camp-type">
-        <option value="broadcast">Broadcast (all contacts)</option>
-        <option value="birthday">Birthday (auto)</option>
-        <option value="seasonal">Seasonal Sale</option>
-        <option value="reengagement">Re-engagement</option>
+      <label class="form-label">Audience</label>
+      <select class="form-select" id="camp-segment">
+        <option value="">Loading segments…</option>
       </select>
+      <div style="font-size:11.5px;color:var(--text2);margin-top:5px" id="camp-segment-hint"></div>
     </div>
+
     <div class="form-group">
       <label class="form-label">Template</label>
-      <select class="form-select" id="camp-template">
-        <option value="hello_world">hello_world (test)</option>
-        <option value="usama_silk_thank_you">usama_silk_thank_you</option>
+      <select class="form-select" id="camp-template" onchange="onCampaignTemplateChange()">
+        <option value="">Loading templates…</option>
       </select>
+      <div style="font-size:11.5px;color:var(--text2);margin-top:5px">
+        {{1}} in the template body is automatically filled with each recipient's name.
+      </div>
     </div>
-    <div class="form-group">
-      <label class="form-label">Schedule</label>
-      <input type="datetime-local" class="form-input" id="camp-schedule">
+
+    <div class="form-group" style="background:var(--surface2);border-radius:8px;padding:12px">
+      <label class="form-label" style="margin-top:0">Test Campaign first</label>
+      <div style="display:flex;gap:8px">
+        <input type="text" class="form-input" id="camp-test-phone" placeholder="923001234567" style="flex:1">
+        <button class="btn btn-outline btn-sm" onclick="sendCampaignTest()">Send Test</button>
+      </div>
+      <div id="camp-test-result" style="font-size:12px;margin-top:8px;display:none"></div>
     </div>
-    <div class="form-group">
-      <label class="form-label">Notes</label>
-      <textarea class="form-textarea" id="camp-notes" style="min-height:70px" placeholder="Campaign notes..."></textarea>
+
+    <div id="camp-progress" style="display:none;margin:14px 0">
+      <div style="height:8px;background:var(--surface2);border-radius:4px;overflow:hidden">
+        <div id="camp-progress-bar" style="height:100%;width:0%;background:var(--accent);transition:width .3s"></div>
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-top:6px" id="camp-progress-text"></div>
     </div>
+
     <div style="display:flex;gap:10px;margin-top:8px">
-      <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="createCampaign()">Create Campaign</button>
+      <button class="btn btn-primary" style="flex:1;justify-content:center" id="camp-send-btn" onclick="sendCampaignNow()">Send Now 📤</button>
       <button class="btn btn-outline" onclick="closeModal('modal-campaign')">Cancel</button>
     </div>
   </div>
@@ -1950,6 +1979,7 @@ function showPage(name, el) {
   if (name === 'send') loadSettingsDisplay();
   if (name === 'templates') loadTemplatesFromMeta();
   if (name === 'reports') loadReports();
+  if (name === 'campaigns') loadCampaigns();
   const main = document.querySelector('.main');
   const mobile = window.innerWidth <= 768;
   if (name === 'inbox') {
@@ -1993,11 +2023,9 @@ function updateDashboard() {
   const pct = state.messages.length > 0 ? Math.round(delivered / state.messages.length * 100) : 0;
   document.getElementById('dash-delivered').textContent = pct + '%';
   document.getElementById('contacts-badge').textContent = state.contacts.length;
-
-  // Campaigns stats
-  document.getElementById('camp-total').textContent = state.campaigns.length;
-  document.getElementById('camp-active').textContent = state.campaigns.filter(c => c.status === 'active').length;
-  document.getElementById('camp-done').textContent = state.campaigns.filter(c => c.status === 'completed').length;
+  // Note: camp-total/camp-active/camp-done on the Campaigns page are owned by
+  // renderCampaigns() (real funnel data via /api/campaign-stats), not here —
+  // this avoids two different status vocabularies fighting over the same DOM.
 }
 
 function renderWeeklyChart() {
@@ -2387,120 +2415,209 @@ async function loadTemplatesFromMeta(force) {
   `).join('') + createCard;
 }
 
-function openNewCampaign() {
+// ===== CAMPAIGNS: real broadcast engine =====
+let campaignSegments = [];
+let campaignTemplates = [];
+
+async function openNewCampaign() {
   document.getElementById('camp-name').value = '';
-  document.getElementById('camp-notes').value = '';
-  document.getElementById('camp-schedule').value = '';
+  document.getElementById('camp-test-phone').value = '';
+  document.getElementById('camp-test-result').style.display = 'none';
+  document.getElementById('camp-progress').style.display = 'none';
+  document.getElementById('camp-send-btn').disabled = false;
+  document.getElementById('camp-send-btn').textContent = 'Send Now 📤';
   document.getElementById('modal-campaign').classList.add('open');
+
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) return;
+
+  const segSel = document.getElementById('camp-segment');
+  segSel.innerHTML = '<option value="">Loading segments…</option>';
+  try {
+    const r = await fetch('/api/segments', { headers: { Authorization: `Bearer ${session.access_token}` } });
+    const j = await r.json();
+    campaignSegments = j.ok ? j.segments : [];
+    segSel.innerHTML = campaignSegments.length
+      ? campaignSegments.map(s => `<option value="${s.key}">${s.label} — ${s.count} contacts</option>`).join('')
+      : '<option value="">No contacts yet</option>';
+    onCampaignSegmentChange();
+  } catch (e) {
+    segSel.innerHTML = '<option value="">Could not load segments</option>';
+  }
+  segSel.onchange = onCampaignSegmentChange;
+
+  const tplSel = document.getElementById('camp-template');
+  tplSel.innerHTML = '<option value="">Loading templates…</option>';
+  try {
+    const r = await fetch('/api/templates', { headers: { Authorization: `Bearer ${session.access_token}` } });
+    const j = await r.json();
+    campaignTemplates = j.ok ? (j.templates || []).filter(t => t.status === 'APPROVED') : [];
+    tplSel.innerHTML = campaignTemplates.length
+      ? campaignTemplates.map(t => `<option value="${t.name}" data-lang="${t.language}">${t.name} (${t.category})</option>`).join('')
+      : '<option value="">No approved templates</option>';
+  } catch (e) {
+    tplSel.innerHTML = '<option value="">Could not load templates</option>';
+  }
 }
 
-async function createCampaign() {
-  const name = document.getElementById('camp-name').value.trim();
-  if (!name) { showToast('Error', 'Campaign name required', true); return; }
+function onCampaignSegmentChange() {
+  const sel = document.getElementById('camp-segment');
+  const seg = campaignSegments.find(s => s.key === sel.value);
+  document.getElementById('camp-segment-hint').textContent = seg
+    ? `${seg.count} contact${seg.count === 1 ? '' : 's'} will receive this campaign (opted-out contacts already excluded).`
+    : '';
+}
 
-  if (state.profile.role === 'admin') {
-    showToast('Error', 'Admin accounts cannot create campaigns directly.', true);
-    return;
-  }
+function onCampaignTemplateChange() { /* reserved for future variable-preview */ }
 
-  const type = document.getElementById('camp-type').value;
-  const templateName = document.getElementById('camp-template').value;
-  const schedule = document.getElementById('camp-schedule').value;
-  const notes = document.getElementById('camp-notes').value;
+function currentTemplateLang() {
+  const sel = document.getElementById('camp-template');
+  const opt = sel.options[sel.selectedIndex];
+  return opt ? (opt.dataset.lang || 'en') : 'en';
+}
 
-  const { data, error } = await sb
-    .from('campaigns')
-    .insert({
-      business_id: state.profile.business_id,
-      name,
-      type,
-      template_name: templateName,
-      scheduled_at: schedule || null,
-      notes,
-      status: 'active',
-      sent_count: 0
-    })
-    .select()
-    .single();
+async function sendCampaignTest() {
+  const phone = document.getElementById('camp-test-phone').value.trim();
+  const template = document.getElementById('camp-template').value;
+  const resultEl = document.getElementById('camp-test-result');
+  if (!phone) { showToast('Error', 'Enter a phone number to test', true); return; }
+  if (!template) { showToast('Error', 'Pick a template first', true); return; }
 
-  if (error) {
-    showToast('Error', 'Could not create campaign: ' + error.message, true);
-    return;
-  }
+  resultEl.style.display = 'block';
+  resultEl.innerHTML = '<span style="color:var(--text2)">Sending test…</span>';
 
-  state.campaigns.unshift({
-    id: data.id, name: data.name, type: data.type,
-    template: data.template_name || '', schedule: data.scheduled_at || '',
-    notes: data.notes || '', status: data.status,
-    created: data.created_at, sent: data.sent_count || 0
+  const result = await waApi('/api/campaign-send', {
+    test_only: true, test_phone: phone,
+    template_name: template, template_language: currentTemplateLang(),
   });
+  if (result.ok) {
+    resultEl.innerHTML = '<span style="color:var(--accent)">✓ Test sent — check that WhatsApp number.</span>';
+  } else {
+    resultEl.innerHTML = `<span style="color:var(--red)">✗ ${result.detail?.error?.message || result.error || 'Test failed'}</span>`;
+  }
+}
 
-  renderCampaigns();
-  updateDashboard();
+async function sendCampaignNow() {
+  const name = document.getElementById('camp-name').value.trim();
+  const segmentKey = document.getElementById('camp-segment').value;
+  const template = document.getElementById('camp-template').value;
+  if (!segmentKey) { showToast('Error', 'Pick an audience', true); return; }
+  if (!template) { showToast('Error', 'Pick a template', true); return; }
+
+  const btn = document.getElementById('camp-send-btn');
+  btn.disabled = true; btn.textContent = 'Sending…';
+  const progWrap = document.getElementById('camp-progress');
+  const progBar = document.getElementById('camp-progress-bar');
+  const progText = document.getElementById('camp-progress-text');
+  progWrap.style.display = 'block';
+
+  let campaignId = null, offset = 0, totalSent = 0, totalFailed = 0, total = 0;
+
+  while (true) {
+    const result = await waApi('/api/campaign-send', {
+      segment_key: segmentKey, template_name: template, template_language: currentTemplateLang(),
+      campaign_name: name || undefined, campaign_id: campaignId, offset,
+    });
+    if (!result.ok) {
+      showToast('Error', result.error || 'Send failed', true);
+      btn.disabled = false; btn.textContent = 'Send Now 📤';
+      return;
+    }
+    campaignId = result.campaign_id;
+    total = result.total;
+    totalSent += result.sent; totalFailed += result.failed;
+    const doneCount = total ? Math.min(offset + (result.next_offset ? result.next_offset - offset : total - offset), total) : 0;
+    const pct = total ? Math.round((doneCount / total) * 100) : 100;
+    progBar.style.width = pct + '%';
+    progText.textContent = `${doneCount} / ${total} sent — ${totalFailed} failed`;
+
+    if (result.done || result.next_offset === null) break;
+    offset = result.next_offset;
+  }
+
+  showToast('Campaign Sent', `${totalSent} delivered, ${totalFailed} failed`);
+  addActivity(`Campaign sent: ${name || template} → ${totalSent} recipients`);
+  btn.disabled = false; btn.textContent = 'Send Now 📤';
   closeModal('modal-campaign');
-  showToast('Campaign Created', `"${name}" is ready`);
-  addActivity(`Campaign created: ${name}`);
+  loadCampaigns();
+}
+
+// ---- Campaign list + detail (funnel + recipients) ----
+async function loadCampaigns() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) return;
+  try {
+    const r = await fetch('/api/campaign-stats', { headers: { Authorization: `Bearer ${session.access_token}` } });
+    const j = await r.json();
+    state.campaignList = j.ok ? j.campaigns : [];
+  } catch (e) { state.campaignList = []; }
+  renderCampaigns();
 }
 
 function renderCampaigns() {
+  const list = state.campaignList || [];
+  document.getElementById('camp-total').textContent = list.length;
+  document.getElementById('camp-active').textContent = list.filter(c => c.status === 'sending').length;
+  document.getElementById('camp-done').textContent = list.filter(c => c.status === 'sent').length;
+
   const el = document.getElementById('campaigns-list');
-  if (state.campaigns.length === 0) {
+  if (!list.length) {
     el.innerHTML = `<div class="empty-state" style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:48px"><div class="empty-icon">📢</div><p>No campaigns yet. Create your first campaign to get started.</p></div>`;
     return;
   }
-  const typeColors = { broadcast:'blue', birthday:'yellow', seasonal:'green', reengagement:'purple' };
-  el.innerHTML = state.campaigns.map(c => `
-    <div class="campaign-card">
+  el.innerHTML = list.map(c => `
+    <div class="campaign-card" style="cursor:pointer" onclick="openCampaignDetail('${c.id}')">
       <div class="campaign-top">
         <div>
           <div class="campaign-name">${c.name}</div>
-          <div class="campaign-meta">${c.template} • ${c.schedule ? new Date(c.schedule).toLocaleString() : 'Not scheduled'}</div>
+          <div class="campaign-meta">${c.template_name || ''} • ${c.audience_count || 0} recipients</div>
         </div>
-        <div style="display:flex;gap:6px;align-items:center">
-          <span class="badge badge-${typeColors[c.type]||'blue'}">${c.type}</span>
-          <span class="badge badge-green">${c.status}</span>
-        </div>
+        <span class="badge ${c.status === 'sent' ? 'badge-green' : c.status === 'failed' ? 'badge-red' : 'badge-yellow'}">${c.status}</span>
       </div>
-      ${c.notes ? `<div style="font-size:12px;color:var(--text2);margin-bottom:10px">${c.notes}</div>` : ''}
-      <div style="display:flex;align-items:center;justify-content:space-between">
-        <div style="font-size:11px;color:var(--text3)">Created ${new Date(c.created).toLocaleDateString()} • ${state.contacts.length} contacts</div>
-        <div style="display:flex;gap:6px">
-          <button class="btn btn-primary btn-sm" onclick="launchCampaign('${c.id}')">▶ Launch</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteCampaign('${c.id}')">🗑</button>
-        </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px">
+        Created ${c.created_at ? new Date(c.created_at).toLocaleString() : ''}
       </div>
     </div>
   `).join('');
 }
 
-async function deleteCampaign(id) {
-  const { error } = await sb.from('campaigns').delete().eq('id', id);
-  if (error) { showToast('Error', 'Could not delete campaign', true); return; }
-  state.campaigns = state.campaigns.filter(c => c.id !== id);
-  renderCampaigns(); updateDashboard();
-  showToast('Deleted', 'Campaign removed');
+async function openCampaignDetail(id) {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) return;
+  const r = await fetch(`/api/campaign-stats?campaign_id=${id}`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+  const j = await r.json();
+  if (!j.ok) { showToast('Error', j.error || 'Could not load campaign', true); return; }
+
+  document.getElementById('campaigns-list').style.display = 'none';
+  document.getElementById('campaign-detail').style.display = 'block';
+  document.getElementById('cd-name').textContent = j.campaign.name;
+
+  const s = j.stats || {};
+  const funnelStep = (label, val, color) => `
+    <div style="flex:1;min-width:100px;background:var(--surface2);border-radius:10px;padding:12px;text-align:center">
+      <div style="font-size:20px;font-weight:700;color:${color}">${val ?? 0}</div>
+      <div style="font-size:11px;color:var(--text2);margin-top:2px">${label}</div>
+    </div>`;
+  document.getElementById('cd-funnel').innerHTML =
+    funnelStep('Sent', s.sent, 'var(--text)') +
+    funnelStep('Delivered', s.delivered, 'var(--accent)') +
+    funnelStep('Read', s.read, '#5b8def') +
+    funnelStep('Clicked', s.clicked, '#c77dff') +
+    funnelStep('Replied', s.replied, '#f4c430') +
+    funnelStep('Failed', s.failed, 'var(--red)');
+
+  document.getElementById('cd-recipients').innerHTML = (j.recipients || []).map(r => `
+    <tr>
+      <td>${r.phone}</td>
+      <td><span class="badge ${r.status === 'read' ? 'badge-green' : r.status === 'failed' ? 'badge-red' : 'badge-yellow'}">${r.status}</span></td>
+      <td>${r.clicked_at ? '✓' : '—'}</td>
+      <td style="color:var(--text2)">${r.created_at ? new Date(r.created_at).toLocaleString() : ''}</td>
+    </tr>`).join('') || '<tr><td colspan="4" style="color:var(--text2)">No recipients logged yet.</td></tr>';
 }
 
-async function launchCampaign(id) {
-  const camp = state.campaigns.find(c => c.id === id);
-  if (!camp) return;
-  if (state.contacts.length === 0) { showToast('Error', 'Add contacts first before launching a campaign', true); return; }
-  if (!state.settings.phoneId) { showToast('Error', 'Configure API credentials in Settings first', true); return; }
-
-  const { error } = await sb
-    .from('campaigns')
-    .update({ status: 'completed', sent_count: state.contacts.length })
-    .eq('id', id);
-
-  if (error) {
-    showToast('Error', 'Could not update campaign status', true);
-    return;
-  }
-
-  showToast('Campaign Launched', `"${camp.name}" sending to ${state.contacts.length} contacts`);
-  addActivity(`Campaign launched: ${camp.name} → ${state.contacts.length} contacts`);
-  camp.status = 'completed'; camp.sent = state.contacts.length;
-  renderCampaigns(); updateDashboard();
+function closeCampaignDetail() {
+  document.getElementById('campaign-detail').style.display = 'none';
+  document.getElementById('campaigns-list').style.display = 'block';
 }
 
 // ===== SEND MESSAGE =====
