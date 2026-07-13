@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Feedback Form Setup — PUMPA CRM</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg:#0a0a0f; --surface:#111118; --surface2:#1a1a24; --border:#2a2a3a;
+    --accent:#25d366; --text:#f0f0f8; --text2:#8888aa; --text3:#555570; --red:#ff4d6d;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; padding:32px 18px; }
+  .wrap { max-width:980px; margin:0 auto; }
+  .top { display:flex; align-items:center; justify-content:space-between; margin-bottom:26px; flex-wrap:wrap; gap:10px; }
+  h1 { font-family:'Syne',sans-serif; font-size:24px; }
+  h1 span { color:var(--accent); }
+  .backlink { color:var(--text2); text-decoration:none; font-size:13px; }
+  .backlink:hover { color:var(--accent); }
+
+  .cols { display:grid; grid-template-columns: 1fr 340px; gap:22px; }
+  @media (max-width:860px){ .cols { grid-template-columns:1fr; } }
+
+  .panel { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:26px; }
+  .panel h2 { font-family:'Syne',sans-serif; font-size:15px; margin-bottom:18px; color:var(--text); }
+
+  label { display:block; font-size:11px; font-weight:600; color:var(--text2); margin:16px 0 7px;
+          text-transform:uppercase; letter-spacing:.6px; }
+  input[type=text], input[type=url] {
+    width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:10px;
+    padding:11px 14px; color:var(--text); font:inherit; font-size:14px; outline:none;
+  }
+  input:focus { border-color:var(--accent); }
+  .hint { font-size:11.5px; color:var(--text3); margin-top:6px; line-height:1.5; }
+  .hint a { color:var(--accent); }
+
+  .colorrow { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .swatch { width:34px; height:34px; border-radius:9px; cursor:pointer; border:2px solid transparent; }
+  .swatch.sel { border-color:#fff; }
+  input[type=color] { width:44px; height:34px; border:1px solid var(--border); border-radius:9px;
+                      background:var(--surface2); cursor:pointer; padding:2px; }
+
+  .row { display:flex; gap:12px; align-items:center; }
+  .toggle { display:flex; align-items:center; gap:10px; margin-top:16px; cursor:pointer; user-select:none; }
+  .toggle input { accent-color:var(--accent); width:17px; height:17px; }
+  .toggle span { font-size:14px; color:var(--text); }
+
+  .logo-up { display:flex; gap:14px; align-items:center; }
+  .logo-prev { width:58px; height:58px; border-radius:50%; background:var(--surface2);
+               border:1px solid var(--border); object-fit:cover; }
+  .filebtn { background:var(--surface2); border:1px solid var(--border); color:var(--text2);
+             border-radius:10px; padding:10px 16px; font-size:13px; cursor:pointer; }
+  .filebtn:hover { border-color:var(--accent); color:var(--text); }
+
+  .btn { width:100%; margin-top:26px; background:var(--accent); color:#000; border:0; border-radius:11px;
+         padding:14px; font-family:'Syne',sans-serif; font-weight:700; font-size:14px; cursor:pointer; }
+  .btn[disabled]{ opacity:.5; cursor:not-allowed; }
+  .msg { margin-top:14px; font-size:13px; min-height:18px; text-align:center; }
+  .msg.ok { color:var(--accent); } .msg.err { color:var(--red); }
+
+  /* preview */
+  .prevcard { background:#faf7f1; border-radius:8px; padding:24px 18px; text-align:center; color:#1c1a17; }
+  .prevcard img { width:52px; height:52px; border-radius:50%; object-fit:cover; margin-bottom:8px; background:#fff; }
+  .prevcard .t { font-weight:800; letter-spacing:.13em; font-size:15px; }
+  .prevcard .s { font-size:13px; color:#6b665d; margin:3px 0 12px; font-style:italic; }
+  .prevchip { display:inline-block; padding:8px 16px; border-radius:18px; color:#fff; font-size:12.5px; font-weight:600; }
+
+  .linkbox { margin-top:18px; background:var(--surface2); border:1px solid var(--border); border-radius:10px;
+             padding:11px 13px; font-size:12.5px; color:var(--text2); word-break:break-all; }
+  .linkbox b { color:var(--accent); cursor:pointer; }
+  .qr { text-align:center; margin-top:16px; }
+  .qr img { background:#fff; padding:10px; border-radius:12px; width:170px; height:170px; }
+  .qr p { font-size:11.5px; color:var(--text3); margin-top:8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>Feedback Form <span>Setup</span></h1>
+    <a class="backlink" href="/app.html">← Back to dashboard</a>
+  </div>
+
+  <div class="cols">
+    <!-- LEFT: settings -->
+    <div class="panel">
+      <h2>Your comment card</h2>
+
+      <label>Restaurant name</label>
+      <input type="text" id="rname" placeholder="e.g. Kapacious">
+
+      <label>Form link (slug)</label>
+      <input type="text" id="slug" placeholder="kapacious">
+      <div class="hint">Your customers' form lives at <b>zyvonai.com/f.html?r=<span id="slugecho">…</span></b></div>
+
+      <label>Logo</label>
+      <div class="logo-up">
+        <img class="logo-prev" id="logoprev" src="" alt="">
+        <button class="filebtn" onclick="document.getElementById('logofile').click()">Upload logo</button>
+        <input type="file" id="logofile" accept="image/*" style="display:none">
+      </div>
+
+      <label>Brand color</label>
+      <div class="colorrow" id="swatches">
+        <div class="swatch" data-c="#b08d3e" style="background:#b08d3e"></div>
+        <div class="swatch" data-c="#1f6f54" style="background:#1f6f54"></div>
+        <div class="swatch" data-c="#8c2f39" style="background:#8c2f39"></div>
+        <div class="swatch" data-c="#1e3a5f" style="background:#1e3a5f"></div>
+        <div class="swatch" data-c="#4a2c6b" style="background:#4a2c6b"></div>
+        <div class="swatch" data-c="#1c1a17" style="background:#1c1a17"></div>
+        <input type="color" id="colorpick" value="#b08d3e" title="Custom color">
+      </div>
+
+      <label>Google review link <span style="text-transform:none;color:var(--text3)">(optional but recommended)</span></label>
+      <input type="url" id="greview" placeholder="https://g.page/r/XXXXXXXX/review">
+      <div class="hint">Get this from your <a href="https://business.google.com" target="_blank">Google Business Profile</a> →
+        "Ask for reviews" → copy the short link. It's included in the WhatsApp thank-you so guests can rate you
+        on Google from their own phone.</div>
+
+      <div class="toggle" onclick="document.getElementById('lucky').click()">
+        <input type="checkbox" id="lucky" checked onclick="event.stopPropagation()">
+        <span>Ask for date of birth (lucky draw &amp; birthday messages 🎂)</span>
+      </div>
+      <div class="toggle" onclick="document.getElementById('active').click()">
+        <input type="checkbox" id="active" checked onclick="event.stopPropagation()">
+        <span>Form is live</span>
+      </div>
+
+      <button class="btn" id="save">Save &amp; publish</button>
+      <div class="msg" id="msg"></div>
+    </div>
+
+    <!-- RIGHT: preview + link + QR -->
+    <div class="panel">
+      <h2>Live preview</h2>
+      <div class="prevcard">
+        <img id="pv_logo" style="display:none">
+        <div class="t">COMMENT CARD</div>
+        <div class="s" id="pv_sub">Thank you for dining with us</div>
+        <span class="prevchip" id="pv_chip">😍 Excellent</span>
+      </div>
+
+      <div class="linkbox" id="linkbox" style="display:none">
+        <span id="publink"></span> — <b onclick="copyLink()">copy</b>
+      </div>
+      <div class="qr" id="qrwrap" style="display:none">
+        <img id="qrimg" alt="QR code">
+        <p>Print this QR for tables, or bookmark the link on your tablet.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://dpeszhbdgxevlkrfllrc.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_gZj05PTTPix9SEKEwBXo5Q_W8YGBky2';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const $ = id => document.getElementById(id);
+let bizId = null, logoUrl = null, color = '#b08d3e';
+
+// ---- auth gate + load ----
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) return location.href = 'login.html';
+
+  const { data: prof } = await sb.from('profiles').select('business_id').eq('id', session.user.id).single();
+  if (!prof?.business_id) return showMsg('No business linked to this account.', 'err');
+  bizId = prof.business_id;
+
+  const { data: form } = await sb.from('feedback_forms').select('*').eq('business_id', bizId).maybeSingle();
+  if (form) {
+    $('rname').value = form.restaurant_name || '';
+    $('slug').value = form.slug || '';
+    $('greview').value = form.google_review_url || '';
+    $('lucky').checked = form.lucky_draw_enabled !== false;
+    $('active').checked = form.is_active !== false;
+    if (form.logo_url) { logoUrl = form.logo_url; $('logoprev').src = logoUrl; }
+    if (form.accent_color) setColor(form.accent_color);
+    refreshPreview(); refreshLink();
+  } else {
+    // sensible defaults from business record
+    const { data: biz } = await sb.from('businesses').select('name').eq('id', bizId).single();
+    if (biz?.name) { $('rname').value = biz.name; $('slug').value = slugify(biz.name); }
+    refreshPreview();
+  }
+})();
+
+function slugify(s){ return s.toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,40); }
+
+// ---- interactions ----
+$('rname').addEventListener('input', () => {
+  if (!$('slug').dataset.touched) $('slug').value = slugify($('rname').value);
+  refreshPreview();
+});
+$('slug').addEventListener('input', e => { e.target.dataset.touched = '1'; $('slugecho').textContent = e.target.value; });
+
+$('swatches').addEventListener('click', e => {
+  const s = e.target.closest('.swatch'); if (!s) return; setColor(s.dataset.c);
+});
+$('colorpick').addEventListener('input', e => setColor(e.target.value));
+function setColor(c){
+  color = c; $('colorpick').value = c;
+  document.querySelectorAll('.swatch').forEach(s => s.classList.toggle('sel', s.dataset.c === c));
+  $('pv_chip').style.background = c;
+}
+
+$('logofile').addEventListener('change', async e => {
+  const file = e.target.files[0]; if (!file || !bizId) return;
+  showMsg('Uploading logo…');
+  const path = bizId + '/' + Date.now() + '-' + file.name.replace(/[^a-zA-Z0-9.]+/g,'');
+  const { error } = await sb.storage.from('logos').upload(path, file, { upsert: true });
+  if (error) return showMsg('Logo upload failed: ' + error.message, 'err');
+  logoUrl = sb.storage.from('logos').getPublicUrl(path).data.publicUrl;
+  $('logoprev').src = logoUrl; refreshPreview(); showMsg('Logo uploaded ✓', 'ok');
+});
+
+function refreshPreview(){
+  const n = $('rname').value.trim();
+  $('pv_sub').textContent = n ? 'Thank you for dining at ' + n : 'Thank you for dining with us';
+  $('slugecho').textContent = $('slug').value || '…';
+  if (logoUrl){ $('pv_logo').src = logoUrl; $('pv_logo').style.display = 'inline-block'; }
+  $('pv_chip').style.background = color;
+}
+
+// ---- save ----
+$('save').addEventListener('click', async () => {
+  const restaurant_name = $('rname').value.trim();
+  const slug = slugify($('slug').value);
+  if (!restaurant_name) return showMsg('Restaurant name is required.', 'err');
+  if (!slug) return showMsg('Form link (slug) is required.', 'err');
+
+  $('save').disabled = true; showMsg('Saving…');
+  const row = {
+    business_id: bizId, slug, restaurant_name,
+    logo_url: logoUrl, accent_color: color,
+    google_review_url: $('greview').value.trim() || null,
+    lucky_draw_enabled: $('lucky').checked,
+    is_active: $('active').checked,
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await sb.from('feedback_forms').upsert(row, { onConflict: 'business_id' });
+  $('save').disabled = false;
+  if (error) {
+    if ((error.message||'').includes('duplicate') || (error.message||'').includes('unique'))
+      return showMsg('That form link is taken — try another slug.', 'err');
+    return showMsg('Save failed: ' + error.message, 'err');
+  }
+  showMsg('Saved — your comment card is live ✓', 'ok');
+  $('slug').value = slug; refreshLink();
+});
+
+function refreshLink(){
+  const slug = $('slug').value; if (!slug) return;
+  const url = location.origin + '/f.html?r=' + slug;
+  $('publink').textContent = url;
+  $('linkbox').style.display = 'block';
+  $('qrimg').src = 'https://api.qrserver.com/v1/create-qr-code/?size=340x340&data=' + encodeURIComponent(url);
+  $('qrwrap').style.display = 'block';
+}
+function copyLink(){ navigator.clipboard.writeText($('publink').textContent); showMsg('Link copied ✓','ok'); }
+function showMsg(t, cls){ const m = $('msg'); m.textContent = t; m.className = 'msg ' + (cls||''); }
+</script>
+</body>
+</html>

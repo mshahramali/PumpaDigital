@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<meta name="robots" content="noindex" />
+<title>Comment Card</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Archivo+Black&family=Caveat:wght@600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --accent: #b08d3e;          /* replaced per-restaurant at load */
+    --accent-ink: #ffffff;
+    --paper: #faf7f1;
+    --paper-edge: #efe9dd;
+    --ink: #1c1a17;
+    --ink-2: #6b665d;
+    --ink-3: #a39d92;
+    --table: #22271f;           /* dark tabletop behind the card */
+    --bad: #c0392b;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; }
+  body {
+    font-family:'Archivo',system-ui,sans-serif; color:var(--ink);
+    background:
+      radial-gradient(1100px 500px at 15% -10%, rgba(255,255,255,.05), transparent 60%),
+      radial-gradient(900px 600px at 110% 110%, rgba(255,255,255,.04), transparent 60%),
+      var(--table);
+    display:grid; place-items:center; padding:22px 14px;
+  }
+
+  /* ——— the card ——— */
+  .card {
+    position:relative; width:min(640px,100%);
+    background:linear-gradient(178deg, var(--paper) 82%, var(--paper-edge));
+    border-radius:6px; padding:36px 34px 30px;
+    box-shadow:0 30px 60px -18px rgba(0,0,0,.55), 0 2px 0 rgba(255,255,255,.06) inset;
+    overflow:hidden;
+  }
+  .card::after {  /* faint watermark logo, like the printed card */
+    content:''; position:absolute; inset:0;
+    background:var(--wm,none) center 42%/58% no-repeat;
+    opacity:.05; pointer-events:none; filter:grayscale(1);
+  }
+  .card > * { position:relative; z-index:1; }
+
+  /* ——— header ——— */
+  .head { text-align:center; margin-bottom:10px; }
+  .logo {
+    width:66px; height:66px; border-radius:50%; object-fit:cover;
+    border:2px solid var(--paper-edge); box-shadow:0 3px 10px rgba(0,0,0,.12);
+    margin-bottom:10px; background:#fff;
+  }
+  h1 {
+    font-family:'Archivo Black',sans-serif; font-size:clamp(21px,4.5vw,27px);
+    letter-spacing:.14em; text-transform:uppercase;
+  }
+  .script {
+    font-family:'Caveat',cursive; font-size:clamp(19px,4vw,23px);
+    color:var(--ink-2); margin-top:2px;
+  }
+  .rule { height:1.5px; background:var(--ink); opacity:.85; width:72px; margin:12px auto 0; }
+
+  /* ——— progress ——— */
+  .progress { display:flex; gap:7px; justify-content:center; margin:16px 0 20px; }
+  .progress i { width:34px; height:4px; border-radius:2px; background:var(--paper-edge); transition:background .3s; }
+  .progress i.on { background:var(--accent); }
+
+  /* ——— steps ——— */
+  .step { display:none; animation:in .3s ease; }
+  .step.on { display:block; }
+  @keyframes in { from { opacity:0; transform:translateX(14px);} to { opacity:1; transform:none;} }
+
+  .q { font-size:15px; font-weight:700; margin:18px 0 9px; }
+  .q small { font-weight:500; color:var(--ink-3); }
+
+  /* staff strip */
+  .staff { display:flex; gap:10px; background:rgba(0,0,0,.035); border:1px dashed var(--ink-3);
+           border-radius:8px; padding:9px 11px; align-items:center; }
+  .staff label { font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-3); white-space:nowrap; }
+  .staff input { width:100%; border:0; background:transparent; border-bottom:1px solid var(--ink-3);
+                 font:inherit; font-size:14px; padding:2px 1px; outline:none; }
+
+  /* rating rows */
+  .rate { display:flex; align-items:center; gap:8px; padding:9px 0; border-bottom:1px solid var(--paper-edge); }
+  .rate:last-of-type { border-bottom:0; }
+  .rate .lbl { flex:0 0 106px; font-size:14px; font-weight:600; }
+  .chips { display:flex; gap:6px; flex:1; }
+  .chip {
+    flex:1; text-align:center; padding:9px 2px; border:1.5px solid var(--paper-edge);
+    border-radius:9px; background:#fff; cursor:pointer; user-select:none;
+    font-size:12px; font-weight:600; color:var(--ink-2); transition:all .15s;
+  }
+  .chip span { display:block; font-size:17px; margin-bottom:1px; }
+  .chip.sel { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); transform:scale(1.04); }
+
+  /* option chips (source / visits) */
+  .opts { display:flex; flex-wrap:wrap; gap:8px; }
+  .opt {
+    padding:10px 15px; border:1.5px solid var(--paper-edge); border-radius:22px;
+    background:#fff; font-size:13.5px; font-weight:600; color:var(--ink-2); cursor:pointer; transition:all .15s;
+  }
+  .opt.sel { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+
+  textarea, .field input {
+    width:100%; background:#fff; border:1.5px solid var(--paper-edge); border-radius:10px;
+    padding:12px 13px; font:inherit; font-size:15px; outline:none; transition:border .15s;
+  }
+  textarea:focus, .field input:focus { border-color:var(--accent); }
+  textarea { min-height:76px; resize:none; }
+
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:480px){ .grid2 { grid-template-columns:1fr; } .rate .lbl { flex-basis:88px; font-size:13px; } }
+  .field label { display:block; font-size:11px; letter-spacing:.09em; text-transform:uppercase;
+                 color:var(--ink-2); margin:14px 0 6px; font-weight:700; }
+  .field label b { color:var(--bad); }
+  .hint { font-size:11.5px; color:var(--ink-3); margin-top:5px; }
+
+  /* nav buttons */
+  .nav { display:flex; gap:10px; margin-top:24px; }
+  .btn {
+    flex:1; padding:14px; border:0; border-radius:11px; font:inherit; font-size:15px; font-weight:700;
+    cursor:pointer; letter-spacing:.02em; transition:transform .1s, opacity .15s;
+  }
+  .btn:active { transform:scale(.985); }
+  .btn.next { background:var(--accent); color:var(--accent-ink); }
+  .btn.back { flex:0 0 96px; background:transparent; border:1.5px solid var(--paper-edge); color:var(--ink-2); }
+  .btn[disabled] { opacity:.5; cursor:not-allowed; }
+  .err { color:var(--bad); font-size:13px; text-align:center; margin-top:12px; min-height:17px; font-weight:600; }
+
+  /* success */
+  .done { text-align:center; padding:26px 4px 10px; display:none; }
+  .done.on { display:block; animation:in .35s ease; }
+  .tick { width:76px; height:76px; border-radius:50%; background:var(--accent); color:var(--accent-ink);
+          font-size:38px; display:grid; place-items:center; margin:0 auto 16px; }
+  .done h2 { font-family:'Caveat',cursive; font-size:34px; }
+  .done p { color:var(--ink-2); font-size:15px; margin-top:8px; line-height:1.55; }
+  .reset-note { font-size:12px; color:var(--ink-3); margin-top:22px; }
+
+  .powered { text-align:center; font-size:10.5px; letter-spacing:.08em; color:var(--ink-3);
+             margin-top:20px; text-transform:uppercase; }
+  .powered b { color:var(--ink-2); }
+
+  .loading, .offline { color:#cfd4c9; text-align:center; font-size:15px; }
+</style>
+</head>
+<body>
+
+<div class="loading" id="loading">Loading…</div>
+
+<div class="card" id="card" style="display:none">
+  <div class="head">
+    <img class="logo" id="logo" alt="" style="display:none">
+    <h1>Comment Card</h1>
+    <div class="script" id="script">Thank you for dining with us</div>
+    <div class="rule"></div>
+  </div>
+
+  <div class="progress" id="progress"><i class="on"></i><i></i><i></i></div>
+
+  <!-- STEP 1 — ratings -->
+  <div class="step on" data-step="1">
+    <div class="staff">
+      <label>Server</label><input id="server_name" autocomplete="off">
+      <label>Table</label><input id="table_no" autocomplete="off" style="max-width:70px">
+    </div>
+    <div class="q">How was everything?</div>
+    <div id="rates"></div>
+  </div>
+
+  <!-- STEP 2 — the visit -->
+  <div class="step" data-step="2">
+    <div class="q">Where did you find us?</div>
+    <div class="opts" data-group="source">
+      <div class="opt" data-v="walk-in">Walk in</div>
+      <div class="opt" data-v="instagram">Instagram</div>
+      <div class="opt" data-v="facebook">Facebook</div>
+      <div class="opt" data-v="referral">Friend / Family</div>
+      <div class="opt" data-v="google-maps">Google Maps</div>
+      <div class="opt" data-v="other">Other</div>
+    </div>
+    <div class="q">How many times have you visited?</div>
+    <div class="opts" data-group="visit_claim">
+      <div class="opt" data-v="first">First time</div>
+      <div class="opt" data-v="before">Visited before</div>
+      <div class="opt" data-v="regular">Regular customer</div>
+    </div>
+    <div class="q">Any comments or suggestions? <small>(optional)</small></div>
+    <textarea id="comments" placeholder="Tell us anything…"></textarea>
+  </div>
+
+  <!-- STEP 3 — contact -->
+  <div class="step" data-step="3">
+    <div class="q" style="margin-top:4px">Stay in touch — we'll send a thank-you on WhatsApp 💬</div>
+    <div class="grid2">
+      <div class="field"><label>Full name <b>*</b></label><input id="name" autocomplete="off"></div>
+      <div class="field"><label>WhatsApp number <b>*</b></label><input id="phone" inputmode="tel" placeholder="03XX XXXXXXX" autocomplete="off"></div>
+    </div>
+    <div class="grid2">
+      <div class="field" id="dob_wrap"><label>Date of birth 🎁</label><input id="birthday" type="date">
+        <div class="hint">For our lucky draw &amp; birthday treats</div></div>
+      <div class="field"><label>City</label><input id="city" autocomplete="off"></div>
+    </div>
+  </div>
+
+  <!-- SUCCESS -->
+  <div class="done" id="done">
+    <div class="tick">✓</div>
+    <h2 id="done_title">Shukriya!</h2>
+    <p id="done_msg">We've sent you a WhatsApp message —<br>you can rate us on Google right from there. ⭐</p>
+    <div class="reset-note" id="reset_note"></div>
+  </div>
+
+  <div class="nav" id="nav">
+    <button class="btn back" id="back" style="visibility:hidden">Back</button>
+    <button class="btn next" id="next">Next →</button>
+  </div>
+  <div class="err" id="err"></div>
+
+  <div class="powered">Powered by <b>PUMPA</b></div>
+</div>
+
+<script>
+const CATS = [
+  ['food','Food'], ['service','Service'], ['cleanliness','Cleanliness'],
+  ['ambiance','Ambiance'], ['value_money','Value for Money']
+];
+const LEVELS = [ [4,'😍','Excellent'], [3,'🙂','Good'], [2,'😐','Average'], [1,'🙁','Poor'] ];
+
+const state = { step:1, ratings:{}, source:null, visit_claim:null, form:null };
+const $ = id => document.getElementById(id);
+
+// ---------- load restaurant branding ----------
+const slug = new URLSearchParams(location.search).get('r');
+(async () => {
+  if (!slug) return $('loading').textContent = 'Form link is incomplete.';
+  try {
+    const r = await fetch('/api/feedback-public?slug=' + encodeURIComponent(slug));
+    const f = await r.json();
+    if (!r.ok || !f.ok) return $('loading').textContent = 'This feedback form is not available.';
+    state.form = f.form;
+    applyBranding(f.form);
+    buildRatings();
+    $('loading').style.display = 'none';
+    $('card').style.display = 'block';
+  } catch { $('loading').textContent = 'Could not load. Check your connection.'; }
+})();
+
+function applyBranding(f){
+  document.title = 'Comment Card — ' + f.restaurant_name;
+  $('script').textContent = 'Thank you for dining at ' + f.restaurant_name;
+  if (f.accent_color) {
+    document.documentElement.style.setProperty('--accent', f.accent_color);
+    document.documentElement.style.setProperty('--accent-ink', contrastInk(f.accent_color));
+  }
+  if (f.logo_url) {
+    const l = $('logo'); l.src = f.logo_url; l.style.display = 'inline-block';
+    $('card').style.setProperty('--wm', `url("${f.logo_url}")`);
+  }
+  if (!f.lucky_draw_enabled) $('dob_wrap').style.display = 'none';
+}
+function contrastInk(hex){
+  const n = hex.replace('#',''); if (n.length < 6) return '#fff';
+  const r=parseInt(n.slice(0,2),16), g=parseInt(n.slice(2,4),16), b=parseInt(n.slice(4,6),16);
+  return (0.299*r + 0.587*g + 0.114*b) > 160 ? '#1c1a17' : '#ffffff';
+}
+
+// ---------- build rating rows ----------
+function buildRatings(){
+  $('rates').innerHTML = CATS.map(([key,label]) => `
+    <div class="rate">
+      <div class="lbl">${label}</div>
+      <div class="chips" data-cat="${key}">
+        ${LEVELS.map(([v,e,t])=>`<div class="chip" data-v="${v}"><span>${e}</span>${t}</div>`).join('')}
+      </div>
+    </div>`).join('');
+  document.querySelectorAll('.chips').forEach(row => row.addEventListener('click', e => {
+    const c = e.target.closest('.chip'); if (!c) return;
+    row.querySelectorAll('.chip').forEach(x=>x.classList.remove('sel'));
+    c.classList.add('sel');
+    state.ratings[row.dataset.cat] = +c.dataset.v;
+  }));
+}
+
+// ---------- option groups ----------
+document.querySelectorAll('.opts').forEach(g => g.addEventListener('click', e => {
+  const o = e.target.closest('.opt'); if (!o) return;
+  g.querySelectorAll('.opt').forEach(x=>x.classList.remove('sel'));
+  o.classList.add('sel');
+  state[g.dataset.group] = o.dataset.v;
+}));
+
+// ---------- wizard ----------
+function show(n){
+  state.step = n;
+  document.querySelectorAll('.step').forEach(s=>s.classList.toggle('on', +s.dataset.step===n));
+  document.querySelectorAll('#progress i').forEach((d,i)=>d.classList.toggle('on', i < n));
+  $('back').style.visibility = n===1 ? 'hidden' : 'visible';
+  $('next').textContent = n===3 ? 'Submit ✓' : 'Next →';
+  $('err').textContent = '';
+}
+$('back').onclick = () => show(state.step - 1);
+$('next').onclick = () => {
+  if (state.step===1){
+    if (Object.keys(state.ratings).length < CATS.length)
+      return $('err').textContent = 'Please rate all five — quick taps!';
+    return show(2);
+  }
+  if (state.step===2) return show(3);
+  submit();
+};
+
+// ---------- phone normalize (Pakistan) ----------
+function normPhone(raw){
+  let d = raw.replace(/[^0-9]/g,'');
+  if (d.startsWith('0092')) d = d.slice(2);
+  if (d.startsWith('0')) d = '92' + d.slice(1);
+  if (!d.startsWith('92') && d.length === 10) d = '92' + d;
+  return /^92\d{10}$/.test(d) ? d : null;
+}
+
+// ---------- submit ----------
+async function submit(){
+  const name = $('name').value.trim();
+  const phone = normPhone($('phone').value);
+  if (!name)  return $('err').textContent = 'Please enter your name.';
+  if (!phone) return $('err').textContent = 'Please enter a valid Pakistani WhatsApp number.';
+
+  const btn = $('next'); btn.disabled = true; btn.textContent = 'Sending…';
+  const payload = {
+    slug,
+    server_name: $('server_name').value.trim(),
+    table_no: $('table_no').value.trim(),
+    ...state.ratings,
+    source: state.source, visit_claim: state.visit_claim,
+    comments: $('comments').value.trim(),
+    name, phone,
+    birthday: $('birthday').value || null,
+    city: $('city').value.trim(),
+  };
+  try {
+    const r = await fetch('/api/feedback-public', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+    });
+    const j = await r.json();
+    if (!r.ok || !j.ok) throw new Error(j.error || 'failed');
+    // success screen
+    document.querySelectorAll('.step').forEach(s=>s.classList.remove('on'));
+    $('nav').style.display = 'none'; $('progress').style.display = 'none';
+    $('done_title').textContent = 'Shukriya, ' + name.split(' ')[0] + '!';
+    if (!j.whatsapp_sent) $('done_msg').innerHTML = 'Your feedback has been received.<br>Thank you for helping us serve you better!';
+    $('done').classList.add('on');
+    kioskReset();
+  } catch (e) {
+    btn.disabled = false; btn.textContent = 'Submit ✓';
+    $('err').textContent = 'Could not submit — please try again.';
+  }
+}
+
+// ---------- kiosk auto-reset (tablet handed back to waiter) ----------
+function kioskReset(){
+  let s = 8;
+  const note = $('reset_note');
+  const t = setInterval(()=>{
+    note.textContent = 'Ready for the next guest in ' + s + '…';
+    if (--s < 0){ clearInterval(t); location.reload(); }
+  }, 1000);
+}
+</script>
+</body>
+</html>
