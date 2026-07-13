@@ -74,6 +74,17 @@
   .qr { text-align:center; margin-top:16px; }
   .qr img { background:#fff; padding:10px; border-radius:12px; width:170px; height:170px; }
   .qr p { font-size:11.5px; color:var(--text3); margin-top:8px; }
+
+  .formitem { display:flex; align-items:center; justify-content:space-between; gap:10px;
+              padding:11px 14px; background:var(--surface2); border:1px solid var(--border);
+              border-radius:10px; cursor:pointer; }
+  .formitem:hover { border-color:var(--accent); }
+  .formitem.sel { border-color:var(--accent); background:rgba(37,211,102,.08); }
+  .formitem .fname { font-size:13.5px; font-weight:600; }
+  .formitem .fslug { font-size:11.5px; color:var(--text2); margin-top:2px; }
+  .formitem .fdel { color:var(--text3); font-size:16px; padding:2px 6px; border-radius:6px; }
+  .formitem .fdel:hover { color:var(--red); background:rgba(255,77,109,.1); }
+  .formempty { font-size:13px; color:var(--text3); padding:6px 2px; }
 </style>
 </head>
 <body>
@@ -83,10 +94,18 @@
     <a class="backlink" href="/app.html">← Back to dashboard</a>
   </div>
 
+  <div class="panel" style="margin-bottom:22px">
+    <h2 style="display:flex;align-items:center;justify-content:space-between">
+      <span>Your Forms</span>
+      <button class="filebtn" style="border-color:var(--accent);color:var(--accent)" onclick="newForm()">+ New Form</button>
+    </h2>
+    <div id="formlist" style="display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+
   <div class="cols">
     <!-- LEFT: settings -->
     <div class="panel">
-      <h2>Your comment card</h2>
+      <h2 id="editorTitle">Your comment card</h2>
 
       <label>Restaurant name</label>
       <input type="text" id="rname" placeholder="e.g. Kapacious">
@@ -129,6 +148,9 @@
       </div>
 
       <button class="btn" id="save">Save &amp; publish</button>
+      <div style="display:flex;gap:10px;margin-top:8px">
+        <button class="filebtn" id="deleteBtn" style="flex:1;display:none;border-color:var(--red);color:var(--red)" onclick="deleteCurrentForm()">Delete this form</button>
+      </div>
       <div class="msg" id="msg"></div>
     </div>
 
@@ -159,6 +181,8 @@ const SUPABASE_KEY = 'sb_publishable_gZj05PTTPix9SEKEwBXo5Q_W8YGBky2';
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const $ = id => document.getElementById(id);
 let bizId = null, logoUrl = null, color = '#b08d3e';
+let allForms = [];       // every form belonging to this business
+let currentFormId = null; // null = editing a brand-new, unsaved form
 
 // ---- auth gate + load ----
 (async () => {
@@ -169,23 +193,90 @@ let bizId = null, logoUrl = null, color = '#b08d3e';
   if (!prof?.business_id) return showMsg('No business linked to this account.', 'err');
   bizId = prof.business_id;
 
-  const { data: form } = await sb.from('feedback_forms').select('*').eq('business_id', bizId).maybeSingle();
-  if (form) {
-    $('rname').value = form.restaurant_name || '';
-    $('slug').value = form.slug || '';
-    $('greview').value = form.google_review_url || '';
-    $('lucky').checked = form.lucky_draw_enabled !== false;
-    $('active').checked = form.is_active !== false;
-    if (form.logo_url) { logoUrl = form.logo_url; $('logoprev').src = logoUrl; }
-    if (form.accent_color) setColor(form.accent_color);
-    refreshPreview(); refreshLink();
+  await loadFormsList();
+
+  if (allForms.length) {
+    selectForm(allForms[0].id);
   } else {
-    // sensible defaults from business record
+    // sensible defaults from business record, for a fresh first form
     const { data: biz } = await sb.from('businesses').select('name').eq('id', bizId).single();
     if (biz?.name) { $('rname').value = biz.name; $('slug').value = slugify(biz.name); }
     refreshPreview();
   }
 })();
+
+async function loadFormsList() {
+  const { data } = await sb.from('feedback_forms').select('*').eq('business_id', bizId).order('created_at', { ascending: true });
+  allForms = data || [];
+  renderFormsList();
+}
+
+function renderFormsList() {
+  const wrap = $('formlist');
+  if (!allForms.length) {
+    wrap.innerHTML = '<div class="formempty">No forms yet — click "+ New Form" to create your first one.</div>';
+    return;
+  }
+  wrap.innerHTML = allForms.map(f => `
+    <div class="formitem ${f.id === currentFormId ? 'sel' : ''}" onclick="selectForm('${f.id}')">
+      <div>
+        <div class="fname">${escapeHtml(f.restaurant_name || 'Untitled')}</div>
+        <div class="fslug">/f.html?r=${escapeHtml(f.slug || '')}</div>
+      </div>
+      <div class="fdel" onclick="event.stopPropagation();deleteForm('${f.id}')" title="Delete this form">✕</div>
+    </div>`).join('');
+}
+
+function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
+
+function selectForm(id) {
+  const form = allForms.find(f => f.id === id);
+  if (!form) return;
+  currentFormId = form.id;
+  $('editorTitle').textContent = 'Editing: ' + (form.restaurant_name || 'Untitled');
+  $('rname').value = form.restaurant_name || '';
+  $('slug').value = form.slug || ''; $('slug').dataset.touched = '1';
+  $('greview').value = form.google_review_url || '';
+  $('lucky').checked = form.lucky_draw_enabled !== false;
+  $('active').checked = form.is_active !== false;
+  logoUrl = form.logo_url || null;
+  $('logoprev').src = logoUrl || '';
+  setColor(form.accent_color || '#b08d3e');
+  $('deleteBtn').style.display = 'block';
+  showMsg('');
+  refreshPreview(); refreshLink();
+  renderFormsList();
+}
+
+function newForm() {
+  currentFormId = null;
+  $('editorTitle').textContent = 'New comment card';
+  $('rname').value = ''; $('slug').value = ''; $('slug').dataset.touched = '';
+  $('greview').value = ''; $('lucky').checked = true; $('active').checked = true;
+  logoUrl = null; $('logoprev').src = '';
+  setColor('#b08d3e');
+  $('deleteBtn').style.display = 'none';
+  $('linkbox').style.display = 'none'; $('qrwrap').style.display = 'none';
+  showMsg('');
+  refreshPreview();
+  renderFormsList();
+  $('rname').focus();
+}
+
+async function deleteForm(id) {
+  const form = allForms.find(f => f.id === id);
+  if (!form) return;
+  if (!confirm(`Delete the comment card for "${form.restaurant_name || 'this form'}"? This can't be undone.`)) return;
+  const { error } = await sb.from('feedback_forms').delete().eq('id', id);
+  if (error) { showMsg('Delete failed: ' + error.message, 'err'); return; }
+  await loadFormsList();
+  if (currentFormId === id) {
+    if (allForms.length) selectForm(allForms[0].id); else newForm();
+  }
+  showMsg('Form deleted.', 'ok');
+}
+
+function deleteCurrentForm() { if (currentFormId) deleteForm(currentFormId); }
 
 function slugify(s){ return s.toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,40); }
 
@@ -221,10 +312,11 @@ function refreshPreview(){
   $('pv_sub').textContent = n ? 'Thank you for dining at ' + n : 'Thank you for dining with us';
   $('slugecho').textContent = $('slug').value || '…';
   if (logoUrl){ $('pv_logo').src = logoUrl; $('pv_logo').style.display = 'inline-block'; }
+  else { $('pv_logo').style.display = 'none'; }
   $('pv_chip').style.background = color;
 }
 
-// ---- save ----
+// ---- save (insert if new, update if editing an existing form) ----
 $('save').addEventListener('click', async () => {
   const restaurant_name = $('rname').value.trim();
   const slug = slugify($('slug').value);
@@ -240,7 +332,16 @@ $('save').addEventListener('click', async () => {
     is_active: $('active').checked,
     updated_at: new Date().toISOString(),
   };
-  const { error } = await sb.from('feedback_forms').upsert(row, { onConflict: 'business_id' });
+
+  let error;
+  if (currentFormId) {
+    ({ error } = await sb.from('feedback_forms').update(row).eq('id', currentFormId));
+  } else {
+    const result = await sb.from('feedback_forms').insert(row).select().single();
+    error = result.error;
+    if (!error && result.data) currentFormId = result.data.id;
+  }
+
   $('save').disabled = false;
   if (error) {
     if ((error.message||'').includes('duplicate') || (error.message||'').includes('unique'))
@@ -249,6 +350,8 @@ $('save').addEventListener('click', async () => {
   }
   showMsg('Saved — your comment card is live ✓', 'ok');
   $('slug').value = slug; refreshLink();
+  $('deleteBtn').style.display = 'block';
+  await loadFormsList();
 });
 
 function refreshLink(){
