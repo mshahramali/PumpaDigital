@@ -2,6 +2,12 @@
 //
 // Body: { segment_key, template_name, template_language, variable_mapping,
 //         campaign_name, test_only, test_phone }
+//   OR, instead of segment_key:
+//         { custom_recipients: [{ phone, name }, ...], ... }
+// custom_recipients lets the composer send to an arbitrary hand-picked list
+// (e.g. checkboxes selected in Recent Feedback, or a Visit Frequency quick-
+// link) instead of a server-resolved segment. Takes priority over segment_key
+// if both are somehow present.
 //
 // variable_mapping: { "1": "name" } — for each recipient, {{1}} is filled
 // from that field on the resolved contact/customer row. Currently supports
@@ -134,7 +140,7 @@ module.exports = async (req, res) => {
     const {
       segment_key, template_name, template_language, variable_mapping,
       campaign_name, test_only, test_phone, campaign_id: existingCampaignId,
-      offset = 0, batch_size = 25,
+      offset = 0, batch_size = 25, custom_recipients,
     } = req.body || {};
 
     if (!template_name) return res.status(400).json({ ok: false, error: 'template_name required' });
@@ -157,13 +163,18 @@ module.exports = async (req, res) => {
 
     // ── REAL SEND (first call creates the campaign; later calls with the
     //    same campaign_id + offset continue the batch) ──
-    if (!segment_key) return res.status(400).json({ ok: false, error: 'segment_key required' });
+    const hasCustomList = Array.isArray(custom_recipients) && custom_recipients.length > 0;
+    if (!segment_key && !hasCustomList) {
+      return res.status(400).json({ ok: false, error: 'segment_key or custom_recipients required' });
+    }
 
     let campaignId = existingCampaignId;
     let audience;
 
     if (!campaignId) {
-      audience = await resolveAudience(businessId, segment_key);
+      audience = hasCustomList
+        ? custom_recipients.filter(r => r && r.phone).map(r => ({ phone: String(r.phone), name: r.name || '' }))
+        : await resolveAudience(businessId, segment_key);
       const insRes = await sb(`/rest/v1/campaigns`, {
         method: 'POST',
         headers: { Prefer: 'return=representation' },
@@ -173,8 +184,8 @@ module.exports = async (req, res) => {
           type: 'broadcast',
           template_name,
           template_language: template_language || 'en',
-          segment_type: segment_key.startsWith('tag:') ? 'tag' : (segment_key === 'all' ? 'all' : 'auto'),
-          segment_filter: { segment_key },
+          segment_type: hasCustomList ? 'custom' : (segment_key.startsWith('tag:') ? 'tag' : (segment_key === 'all' ? 'all' : 'auto')),
+          segment_filter: hasCustomList ? { custom: true, count: audience.length } : { segment_key },
           variable_mapping: variable_mapping || { "1": "name" },
           status: 'sending',
           audience_count: audience.length,
@@ -185,7 +196,9 @@ module.exports = async (req, res) => {
       campaignId = created?.id;
       if (!campaignId) return res.status(500).json({ ok: false, error: 'Could not create campaign' });
     } else {
-      audience = await resolveAudience(businessId, segment_key);
+      audience = hasCustomList
+        ? custom_recipients.filter(r => r && r.phone).map(r => ({ phone: String(r.phone), name: r.name || '' }))
+        : await resolveAudience(businessId, segment_key);
     }
 
     const batch = audience.slice(offset, offset + batch_size);
