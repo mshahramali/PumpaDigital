@@ -2024,7 +2024,7 @@ function updateDashboard() {
   document.getElementById('dash-delivered').textContent = pct + '%';
   document.getElementById('contacts-badge').textContent = state.contacts.length;
   // Note: camp-total/camp-active/camp-done on the Campaigns page are owned by
-  // renderCampaigns() (real funnel data via /api/campaign-stats), not here —
+  // renderCampaigns() (real funnel data via /api/campaigns), not here —
   // this avoids two different status vocabularies fighting over the same DOM.
 }
 
@@ -2434,7 +2434,7 @@ async function openNewCampaign() {
   const segSel = document.getElementById('camp-segment');
   segSel.innerHTML = '<option value="">Loading segments…</option>';
   try {
-    const r = await fetch('/api/segments', { headers: { Authorization: `Bearer ${session.access_token}` } });
+    const r = await fetch('/api/campaigns?action=segments', { headers: { Authorization: `Bearer ${session.access_token}` } });
     const j = await r.json();
     campaignSegments = j.ok ? j.segments : [];
     segSel.innerHTML = campaignSegments.length
@@ -2547,7 +2547,7 @@ async function loadCampaigns() {
   const { data: { session } } = await sb.auth.getSession();
   if (!session) return;
   try {
-    const r = await fetch('/api/campaign-stats', { headers: { Authorization: `Bearer ${session.access_token}` } });
+    const r = await fetch('/api/campaigns', { headers: { Authorization: `Bearer ${session.access_token}` } });
     const j = await r.json();
     state.campaignList = j.ok ? j.campaigns : [];
   } catch (e) { state.campaignList = []; }
@@ -2584,7 +2584,7 @@ function renderCampaigns() {
 async function openCampaignDetail(id) {
   const { data: { session } } = await sb.auth.getSession();
   if (!session) return;
-  const r = await fetch(`/api/campaign-stats?campaign_id=${id}`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+  const r = await fetch(`/api/campaigns?campaign_id=${id}`, { headers: { Authorization: `Bearer ${session.access_token}` } });
   const j = await r.json();
   if (!j.ok) { showToast('Error', j.error || 'Could not load campaign', true); return; }
 
