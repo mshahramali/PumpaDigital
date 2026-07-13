@@ -84,6 +84,11 @@ async function provisionPartner(wabaId, ownerName) {
 // never throws into the webhook's main flow.
 async function optOutCustomer(businessId, phone) {
   if (!businessId || !phone) return;
+  const patch = { opted_out: true, opted_out_at: new Date().toISOString() };
+  // Mark opted_out on BOTH tables — `customers` (restaurant/feedback vertical)
+  // AND `contacts` (general broadcast audience). A STOP from either surface
+  // must silence both, or broadcasts could still reach someone who opted out
+  // via a feedback-thanks message, and vice versa.
   try {
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/customers?business_id=eq.${businessId}&phone=eq.${phone}`,
@@ -93,12 +98,28 @@ async function optOutCustomer(businessId, phone) {
           'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
           'Content-Type': 'application/json', 'Prefer': 'return=minimal'
         },
-        body: JSON.stringify({ opted_out: true, opted_out_at: new Date().toISOString() })
+        body: JSON.stringify(patch)
       }
     );
-    if (!res.ok) console.error('optOutCustomer error:', await res.text());
-    else console.log('OPT-OUT: customer', phone, 'marked opted_out for business', businessId);
-  } catch (e) { console.error('optOutCustomer failed:', e.message); }
+    if (!res.ok) console.error('optOutCustomer (customers) error:', await res.text());
+    else console.log('OPT-OUT: customers row for', phone, 'marked opted_out, business', businessId);
+  } catch (e) { console.error('optOutCustomer (customers) failed:', e.message); }
+
+  try {
+    const res2 = await fetch(
+      `${SUPABASE_URL}/rest/v1/contacts?business_id=eq.${businessId}&whatsapp_number=eq.${phone}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json', 'Prefer': 'return=minimal'
+        },
+        body: JSON.stringify(patch)
+      }
+    );
+    if (!res2.ok) console.error('optOutCustomer (contacts) error:', await res2.text());
+    else console.log('OPT-OUT: contacts row for', phone, 'marked opted_out, business', businessId);
+  } catch (e) { console.error('optOutCustomer (contacts) failed:', e.message); }
 }
 
 // Resolve which business owns a given phone_number_id
@@ -112,6 +133,38 @@ async function getBusinessId(phoneNumberId) {
     const rows = await res.json();
     return rows && rows[0] ? rows[0].id : null;
   } catch (e) { console.error('getBusinessId error:', e.message); return null; }
+}
+
+// Update a message's delivery status by its wa_message_id. Statuses can
+// arrive out of order (Meta doesn't guarantee sequencing), so we only ever
+// move FORWARD through sent -> delivered -> read, never backward, and never
+// overwrite a terminal 'failed'.
+const STATUS_RANK = { sent: 1, delivered: 2, read: 3, failed: 99 };
+async function updateMessageStatus(waMessageId, newStatus) {
+  if (!waMessageId || !newStatus || !SUPABASE_SERVICE_KEY) return;
+  try {
+    const curRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/messages?wa_message_id=eq.${waMessageId}&select=id,status&limit=1`,
+      { headers: { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}` } }
+    );
+    const rows = await curRes.json();
+    const row = rows && rows[0];
+    if (!row) return; // status for a message we didn't log (e.g. sent before this feature existed)
+
+    const curRank = STATUS_RANK[row.status] || 0;
+    const newRank = STATUS_RANK[newStatus] || 0;
+    if (newRank <= curRank) return; // don't regress or repeat
+
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/messages?id=eq.${row.id}`, {
+      method: 'PATCH',
+      headers: {
+        'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json', 'Prefer': 'return=minimal'
+      },
+      body: JSON.stringify({ status: newStatus }),
+    });
+    if (!res.ok) console.error('updateMessageStatus error:', await res.text());
+  } catch (e) { console.error('updateMessageStatus failed:', e.message); }
 }
 
 // Insert a message row
@@ -283,7 +336,10 @@ export default async function handler(req, res) {
               }
             }
             if (value.statuses) {
-              for (const s of value.statuses) console.log(`Status ${s.id}: ${s.status}`);
+              for (const s of value.statuses) {
+                console.log(`Status ${s.id}: ${s.status}`);
+                await updateMessageStatus(s.id, s.status);
+              }
             }
           }
 
