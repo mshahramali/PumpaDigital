@@ -8,9 +8,11 @@
 //                   3. sends WhatsApp thank-you template (with Google review link if set)
 //                   Feedback is saved even if the WhatsApp send fails.
 //
-// Templates expected on each restaurant's WABA (submit for approval in Meta):
-//   feedback_thanks       — body vars {{1}}=customer name, {{2}}=restaurant name, {{3}}=review URL
-//   feedback_thanks_basic — body vars {{1}}=customer name, {{2}}=restaurant name
+// Templates expected on each restaurant's WABA (approved in Meta, language code 'en'):
+//   feedback_thanks_google_review — body vars {{1}}=customer name, {{2}}=restaurant name, {{3}}=review URL
+//     (used when the restaurant has a google_review_url set)
+//   feedback_thanks — body vars {{1}}=customer name, {{2}}=restaurant name
+//     (used when no google_review_url is set)
 //
 // No npm packages — raw fetch against Supabase REST + Meta Graph API.
 
@@ -136,7 +138,7 @@ module.exports = async (req, res) => {
         const params = hasReview
           ? [name, form.restaurant_name, form.google_review_url]
           : [name, form.restaurant_name];
-        const tpl = hasReview ? 'feedback_thanks' : 'feedback_thanks_basic';
+        const tpl = hasReview ? 'feedback_thanks_google_review' : 'feedback_thanks';
 
         const wr = await fetch(`${GRAPH}/${biz.whatsapp_phone_number_id}/messages`, {
           method: 'POST',
