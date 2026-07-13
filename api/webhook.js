@@ -79,6 +79,28 @@ async function provisionPartner(wabaId, ownerName) {
   }
 }
 
+// Mark a customer opted out of marketing WhatsApp messages (e.g. they tapped
+// the "Stop promotions" quick-reply button on a template). Best-effort —
+// never throws into the webhook's main flow.
+async function optOutCustomer(businessId, phone) {
+  if (!businessId || !phone) return;
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/customers?business_id=eq.${businessId}&phone=eq.${phone}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json', 'Prefer': 'return=minimal'
+        },
+        body: JSON.stringify({ opted_out: true, opted_out_at: new Date().toISOString() })
+      }
+    );
+    if (!res.ok) console.error('optOutCustomer error:', await res.text());
+    else console.log('OPT-OUT: customer', phone, 'marked opted_out for business', businessId);
+  } catch (e) { console.error('optOutCustomer failed:', e.message); }
+}
+
 // Resolve which business owns a given phone_number_id
 async function getBusinessId(phoneNumberId) {
   if (!phoneNumberId || !SUPABASE_SERVICE_KEY) return null;
@@ -241,11 +263,23 @@ export default async function handler(req, res) {
             if (value.messages) {
               for (const message of value.messages) {
                 console.log(`New message from ${message.from}`);
+                const businessId = await getBusinessId(phoneNumberId);
                 await insertMessage({
-                  businessId: await getBusinessId(phoneNumberId),
+                  businessId,
                   phone: message.from, content: messageToText(message),
                   direction: 'inbound', phoneNumberId, waId: message.id
                 });
+
+                // Quick-reply button tap — check for the "Stop promotions" opt-out.
+                // Cloud API sends these as type 'button', with the button's text
+                // (and, since we didn't set a custom payload, its payload too)
+                // equal to the label we set when creating the template.
+                if (message.type === 'button') {
+                  const label = (message.button?.text || message.button?.payload || '').toLowerCase();
+                  if (label.includes('stop promo')) {
+                    await optOutCustomer(businessId, message.from);
+                  }
+                }
               }
             }
             if (value.statuses) {

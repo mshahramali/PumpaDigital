@@ -83,7 +83,7 @@ module.exports = async (req, res) => {
 
     // 2. Upsert customer — increments visit_count on repeat visits
     let customerId = null;
-    const cr = await sb(`/rest/v1/customers?business_id=eq.${bizId}&phone=eq.${phone}&select=id,visit_count,name,birthday,city&limit=1`);
+    const cr = await sb(`/rest/v1/customers?business_id=eq.${bizId}&phone=eq.${phone}&select=id,visit_count,name,birthday,city,opted_out&limit=1`);
     const existing = (await cr.json())[0];
 
     if (existing) {
@@ -127,7 +127,12 @@ module.exports = async (req, res) => {
     console.log('FEEDBACK: recorded for', form.restaurant_name, phone);
 
     // 4. WhatsApp thank-you (best-effort — never fails the submission)
+    //    Skip entirely if this customer previously opted out via "Stop promotions".
     let whatsappSent = false;
+    if (existing?.opted_out) {
+      console.log('FEEDBACK: whatsapp skipped, customer opted out', phone);
+      return res.status(200).json({ ok: true, whatsapp_sent: false, opted_out: true });
+    }
     try {
       const bizRes = await sb(`/rest/v1/businesses?id=eq.${bizId}&select=whatsapp_phone_number_id&limit=1`);
       const biz = (await bizRes.json())[0];
