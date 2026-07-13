@@ -1610,52 +1610,82 @@
     </div>
 
     <!-- REPORTS PAGE -->
+    <!-- REPORTS PAGE (feedback analytics) -->
     <div class="page" id="page-reports">
       <div class="page-header">
         <div class="page-title">Reports</div>
-        <div class="page-sub">Analytics and performance metrics</div>
+        <div class="page-sub">Customer behaviour &amp; feedback analytics</div>
       </div>
 
+      <!-- KPI cards -->
       <div class="stats-grid">
         <div class="stat-card">
-          <div class="stat-label">Total Sent</div>
-          <div class="stat-value" id="rep-sent">0</div>
+          <div class="stat-label">Total Customers</div>
+          <div class="stat-value" id="rep-total">0</div>
+          <div class="stat-change" id="rep-total-sub">all time</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Delivered</div>
-          <div class="stat-value" id="rep-del">0</div>
-          <div class="stat-change up">0% rate</div>
+          <div class="stat-label">New This Week</div>
+          <div class="stat-value" id="rep-new">0</div>
+          <div class="stat-change up" id="rep-new-sub">first visits</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Failed</div>
-          <div class="stat-value" style="color:var(--red)" id="rep-fail">0</div>
+          <div class="stat-label">Returning Rate</div>
+          <div class="stat-value" id="rep-return">0%</div>
+          <div class="stat-change" id="rep-return-sub">visited 2+ times</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Contacts</div>
-          <div class="stat-value" id="rep-cont">0</div>
+          <div class="stat-label">Avg Rating</div>
+          <div class="stat-value" id="rep-rating">–</div>
+          <div class="stat-change" id="rep-rating-sub">out of 4</div>
         </div>
       </div>
 
+      <!-- New vs returning trend -->
       <div class="card">
-        <div class="card-title">Message Log</div>
+        <div class="card-title">New vs Returning — last 8 weeks</div>
+        <div id="rep-trend" style="min-height:200px"></div>
+        <div style="display:flex;gap:18px;margin-top:12px;font-size:12px;color:var(--text2)">
+          <span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--accent);margin-right:6px"></i>New visitors</span>
+          <span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#5b8def;margin-right:6px"></i>Returning</span>
+        </div>
+      </div>
+
+      <div class="stats-grid" style="grid-template-columns:1fr 1fr;margin-top:20px">
+        <!-- Visit frequency -->
+        <div class="card" style="margin:0">
+          <div class="card-title">Visit Frequency</div>
+          <div id="rep-freq" style="min-height:180px"></div>
+        </div>
+        <!-- Busiest days -->
+        <div class="card" style="margin:0">
+          <div class="card-title">Busiest Days</div>
+          <div id="rep-days" style="min-height:180px"></div>
+        </div>
+      </div>
+
+      <!-- Rating breakdown -->
+      <div class="card">
+        <div class="card-title">Ratings by Category</div>
+        <div id="rep-cats" style="min-height:150px"></div>
+      </div>
+
+      <!-- Recent feedback -->
+      <div class="card">
+        <div class="card-title">Recent Feedback</div>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Time</th>
-                <th>Recipient</th>
-                <th>Template</th>
-                <th>Status</th>
+                <th>When</th>
+                <th>Customer</th>
+                <th>Visit</th>
+                <th>Avg</th>
+                <th>Comment</th>
               </tr>
             </thead>
-            <tbody id="message-log">
-              <tr>
-                <td colspan="4">
-                  <div class="empty-state" style="padding:24px">
-                    <p>No messages sent yet. Send your first message to see logs here.</p>
-                  </div>
-                </td>
-              </tr>
+            <tbody id="rep-feed">
+              <tr><td colspan="5"><div class="empty-state" style="padding:24px"><p>No feedback yet. Once customers start submitting, it appears here.</p></div></td></tr>
             </tbody>
           </table>
         </div>
@@ -1919,6 +1949,7 @@ function showPage(name, el) {
   if (el) el.classList.add('active');
   if (name === 'send') loadSettingsDisplay();
   if (name === 'templates') loadTemplatesFromMeta();
+  if (name === 'reports') loadReports();
   const main = document.querySelector('.main');
   const mobile = window.innerWidth <= 768;
   if (name === 'inbox') {
@@ -1962,12 +1993,6 @@ function updateDashboard() {
   const pct = state.messages.length > 0 ? Math.round(delivered / state.messages.length * 100) : 0;
   document.getElementById('dash-delivered').textContent = pct + '%';
   document.getElementById('contacts-badge').textContent = state.contacts.length;
-
-  // Reports
-  document.getElementById('rep-sent').textContent = state.messages.length;
-  document.getElementById('rep-del').textContent = delivered;
-  document.getElementById('rep-fail').textContent = state.messages.filter(m => m.status === 'failed').length;
-  document.getElementById('rep-cont').textContent = state.contacts.length;
 
   // Campaigns stats
   document.getElementById('camp-total').textContent = state.campaigns.length;
@@ -2550,6 +2575,7 @@ async function sendMessage() {
 
 function renderMessageLog() {
   const tbody = document.getElementById('message-log');
+  if (!tbody) return;
   if (state.messages.length === 0) {
     tbody.innerHTML = `<tr><td colspan="4"><div class="empty-state" style="padding:24px"><p>No messages sent yet.</p></div></td></tr>`;
     return;
@@ -3193,6 +3219,182 @@ function showToast(title, msg, isError = false) {
   toast.classList.add('show');
   setTimeout(() => toast.classList.remove('show'), 3500);
 }
+
+// ===== REPORTS ANALYTICS =====
+// ===== REPORTS: FEEDBACK ANALYTICS (Supabase-backed) =====
+// Reads `customers` (visit tracking) and `feedback` (ratings) scoped to the
+// logged-in business. Renders lightweight SVG/CSS charts — no chart library.
+
+async function loadReports() {
+  const bizId = state.profile && state.profile.business_id;
+  if (!bizId && state.profile.role !== 'admin') return;
+
+  // Pull customers (visit data) and recent feedback in parallel.
+  const custQ = sb.from('customers')
+    .select('id, name, phone, visit_count, first_visit_at, last_visit_at, created_at')
+    .order('created_at', { ascending: false });
+  const feedQ = sb.from('feedback')
+    .select('id, customer_id, food, service, cleanliness, ambiance, value_money, comments, created_at, customers(name, phone, visit_count)')
+    .order('created_at', { ascending: false })
+    .limit(400);
+  if (bizId) { custQ.eq('business_id', bizId); feedQ.eq('business_id', bizId); }
+
+  const [{ data: customers = [] }, { data: feedback = [] }] = await Promise.all([custQ, feedQ]);
+
+  repKPIs(customers, feedback);
+  repTrend(customers);
+  repFrequency(customers);
+  repBusiestDays(customers);
+  repCategories(feedback);
+  repFeedTable(feedback);
+}
+
+// ---------- KPI cards ----------
+function repKPIs(customers, feedback) {
+  const now = Date.now();
+  const weekAgo = now - 7 * 864e5;
+  const total = customers.length;
+  const newThisWeek = customers.filter(c => new Date(c.first_visit_at || c.created_at).getTime() >= weekAgo).length;
+  const returning = customers.filter(c => (c.visit_count || 1) >= 2).length;
+  const returnRate = total ? Math.round((returning / total) * 100) : 0;
+
+  let sum = 0, n = 0;
+  feedback.forEach(f => ['food','service','cleanliness','ambiance','value_money'].forEach(k => {
+    if (f[k]) { sum += f[k]; n++; }
+  }));
+  const avg = n ? (sum / n).toFixed(1) : '–';
+
+  document.getElementById('rep-total').textContent = total;
+  document.getElementById('rep-new').textContent = newThisWeek;
+  document.getElementById('rep-return').textContent = returnRate + '%';
+  document.getElementById('rep-return-sub').textContent = returning + ' visited 2+ times';
+  document.getElementById('rep-rating').textContent = avg;
+}
+
+// ---------- New vs returning, last 8 weeks (grouped bars) ----------
+function repTrend(customers) {
+  const weeks = 8, now = new Date();
+  const buckets = Array.from({ length: weeks }, (_, i) => {
+    const end = new Date(now); end.setDate(end.getDate() - (weeks - 1 - i) * 7);
+    const start = new Date(end); start.setDate(start.getDate() - 6);
+    return { start, end, label: `${end.getDate()}/${end.getMonth()+1}`, nw: 0, ret: 0 };
+  });
+  customers.forEach(c => {
+    const first = new Date(c.first_visit_at || c.created_at).getTime();
+    const last = new Date(c.last_visit_at || c.created_at).getTime();
+    buckets.forEach(b => {
+      const s = b.start.getTime(), e = b.end.getTime() + 864e5;
+      if (first >= s && first < e) b.nw++;
+      if ((c.visit_count || 1) >= 2 && last >= s && last < e) b.ret++;
+    });
+  });
+  const max = Math.max(1, ...buckets.map(b => Math.max(b.nw, b.ret)));
+  const W = 100 / weeks;
+  let bars = '';
+  buckets.forEach((b, i) => {
+    const x = i * W, bw = W * 0.32;
+    const h1 = (b.nw / max) * 78, h2 = (b.ret / max) * 78;
+    bars += `<rect x="${x + W*0.16}%" y="${88 - h1}%" width="${bw}%" height="${h1}%" rx="1.5" fill="var(--accent)"></rect>`;
+    bars += `<rect x="${x + W*0.52}%" y="${88 - h2}%" width="${bw}%" height="${h2}%" rx="1.5" fill="#5b8def"></rect>`;
+    bars += `<text x="${x + W/2}%" y="97%" text-anchor="middle" font-size="8" fill="var(--text2)">${b.label}</text>`;
+  });
+  document.getElementById('rep-trend').innerHTML =
+    `<svg width="100%" height="200" preserveAspectRatio="none">${bars}</svg>`;
+}
+
+// ---------- Visit frequency segments (your core ask) ----------
+function repFrequency(customers) {
+  const seg = { '1st time': 0, '2nd time': 0, '3rd+ time': 0 };
+  customers.forEach(c => {
+    const v = c.visit_count || 1;
+    if (v <= 1) seg['1st time']++; else if (v === 2) seg['2nd time']++; else seg['3rd+ time']++;
+  });
+  const max = Math.max(1, ...Object.values(seg));
+  const colors = ['var(--accent)', '#5b8def', '#c77dff'];
+  let rows = '';
+  Object.entries(seg).forEach(([label, val], i) => {
+    const w = (val / max) * 100;
+    rows += `
+      <div style="margin:12px 0">
+        <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px">
+          <span style="color:var(--text)">${label}</span><span style="color:var(--text2)">${val}</span>
+        </div>
+        <div style="height:12px;background:var(--surface2);border-radius:6px;overflow:hidden">
+          <div style="height:100%;width:${w}%;background:${colors[i]};border-radius:6px;transition:width .5s"></div>
+        </div>
+      </div>`;
+  });
+  document.getElementById('rep-freq').innerHTML = rows;
+}
+
+// ---------- Busiest days of week ----------
+function repBusiestDays(customers) {
+  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const counts = [0,0,0,0,0,0,0];
+  customers.forEach(c => { counts[new Date(c.last_visit_at || c.created_at).getDay()]++; });
+  const max = Math.max(1, ...counts);
+  let bars = '';
+  counts.forEach((v, i) => {
+    const h = (v / max) * 76;
+    const x = (i / 7) * 100;
+    bars += `<rect x="${x + 2}%" y="${80 - h}%" width="${100/7 - 4}%" height="${h}%" rx="2" fill="var(--accent)" opacity="${0.4 + 0.6*(v/max)}"></rect>`;
+    bars += `<text x="${x + (100/7)/2}%" y="94%" text-anchor="middle" font-size="8.5" fill="var(--text2)">${days[i]}</text>`;
+  });
+  document.getElementById('rep-days').innerHTML =
+    `<svg width="100%" height="180" preserveAspectRatio="none">${bars}</svg>`;
+}
+
+// ---------- Ratings by category ----------
+function repCategories(feedback) {
+  const cats = [['food','Food'],['service','Service'],['cleanliness','Cleanliness'],['ambiance','Ambiance'],['value_money','Value']];
+  let rows = '';
+  cats.forEach(([key, label]) => {
+    let sum = 0, n = 0;
+    feedback.forEach(f => { if (f[key]) { sum += f[key]; n++; } });
+    const avg = n ? sum / n : 0;
+    const pct = (avg / 4) * 100;
+    const color = avg >= 3.5 ? 'var(--accent)' : avg >= 2.5 ? '#f4c430' : 'var(--red)';
+    rows += `
+      <div style="margin:10px 0">
+        <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px">
+          <span style="color:var(--text)">${label}</span>
+          <span style="color:var(--text2)">${n ? avg.toFixed(1) : '–'}</span>
+        </div>
+        <div style="height:10px;background:var(--surface2);border-radius:5px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:${color};border-radius:5px"></div>
+        </div>
+      </div>`;
+  });
+  document.getElementById('rep-cats').innerHTML = rows;
+}
+
+// ---------- Recent feedback table ----------
+function repFeedTable(feedback) {
+  const tb = document.getElementById('rep-feed');
+  if (!feedback.length) return;
+  const ord = ['1st','2nd','3rd','4th','5th'];
+  tb.innerHTML = feedback.slice(0, 40).map(f => {
+    const vals = ['food','service','cleanliness','ambiance','value_money'].map(k => f[k]).filter(Boolean);
+    const avg = vals.length ? (vals.reduce((a,b)=>a+b,0) / vals.length).toFixed(1) : '–';
+    const c = f.customers || {};
+    const when = new Date(f.created_at);
+    const whenStr = when.toLocaleDateString([], { month:'short', day:'numeric' }) + ' ' +
+                    when.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+    const v = c.visit_count || 1;
+    const vLabel = v <= 5 ? ord[v-1] + ' visit' : v + 'th visit';
+    const badge = avg >= 3.5 ? 'badge-green' : avg >= 2.5 ? 'badge-yellow' : 'badge-red';
+    return `<tr>
+      <td style="white-space:nowrap;color:var(--text2)">${whenStr}</td>
+      <td>${esc(c.name || 'Guest')}<div style="font-size:11px;color:var(--text2)">${esc(c.phone||'')}</div></td>
+      <td><span class="badge ${v>=2?'badge-green':''}" style="${v<2?'background:var(--surface2);color:var(--text2)':''}">${vLabel}</span></td>
+      <td><span class="badge ${badge}">${avg}</span></td>
+      <td style="max-width:220px;color:var(--text2)">${esc(f.comments || '—')}</td>
+    </tr>`;
+  }).join('');
+}
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
+
 </script>
 </body>
 </html>
