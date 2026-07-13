@@ -3408,7 +3408,11 @@ async function loadReports() {
     .limit(400);
   if (bizId) { custQ.eq('business_id', bizId); feedQ.eq('business_id', bizId); }
 
-  const [{ data: customers = [] }, { data: feedback = [] }] = await Promise.all([custQ, feedQ]);
+  const [custResult, feedResult] = await Promise.all([custQ, feedQ]);
+  if (custResult.error) console.error('Reports: customers query failed:', custResult.error);
+  if (feedResult.error) console.error('Reports: feedback query failed:', feedResult.error);
+  const customers = custResult.data || [];
+  const feedback = feedResult.data || [];
 
   repKPIs(customers, feedback);
   repTrend(customers);
