@@ -1689,11 +1689,15 @@
 
       <!-- Recent feedback -->
       <div class="card">
-        <div class="card-title">Recent Feedback</div>
+        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+          <span>Recent Feedback</span>
+          <button class="btn btn-primary" id="feed-send-selected-btn" style="display:none;padding:6px 14px;font-size:13px" onclick="sendToSelectedFeedback()">Send to Selected (<span id="feed-selected-count">0</span>)</button>
+        </div>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
+                <th style="width:32px"><input type="checkbox" id="feed-select-all" onchange="toggleAllFeedbackSelection(this.checked)"></th>
                 <th>When</th>
                 <th>Customer</th>
                 <th>Visit</th>
@@ -1703,7 +1707,7 @@
               </tr>
             </thead>
             <tbody id="rep-feed">
-              <tr><td colspan="6"><div class="empty-state" style="padding:24px"><p>No feedback yet. Once customers start submitting, it appears here.</p></div></td></tr>
+              <tr><td colspan="7"><div class="empty-state" style="padding:24px"><p>No feedback yet. Once customers start submitting, it appears here.</p></div></td></tr>
             </tbody>
           </table>
         </div>
@@ -2470,8 +2474,9 @@ async function loadTemplatesFromMeta(force) {
 // ===== CAMPAIGNS: real broadcast engine =====
 let campaignSegments = [];
 let campaignTemplates = [];
+let campaignCustomRecipients = null; // non-null = sending to a hand-picked list, not a segment
 
-async function openNewCampaign() {
+async function openNewCampaign(customList) {
   document.getElementById('camp-name').value = '';
   document.getElementById('camp-test-phone').value = '';
   document.getElementById('camp-test-result').style.display = 'none';
@@ -2484,19 +2489,29 @@ async function openNewCampaign() {
   if (!session) return;
 
   const segSel = document.getElementById('camp-segment');
-  segSel.innerHTML = '<option value="">Loading segments…</option>';
-  try {
-    const r = await fetch('/api/campaigns?action=segments', { headers: { Authorization: `Bearer ${session.access_token}` } });
-    const j = await r.json();
-    campaignSegments = j.ok ? j.segments : [];
-    segSel.innerHTML = campaignSegments.length
-      ? campaignSegments.map(s => `<option value="${s.key}">${s.label} — ${s.count} contacts</option>`).join('')
-      : '<option value="">No contacts yet</option>';
-    onCampaignSegmentChange();
-  } catch (e) {
-    segSel.innerHTML = '<option value="">Could not load segments</option>';
+
+  if (customList && customList.length) {
+    campaignCustomRecipients = customList;
+    segSel.innerHTML = `<option value="__custom__">Custom Selection — ${customList.length} contact${customList.length===1?'':'s'}</option>`;
+    segSel.onchange = null;
+    document.getElementById('camp-segment-hint').textContent =
+      `${customList.length} hand-picked contact${customList.length===1?'':'s'} will receive this campaign.`;
+  } else {
+    campaignCustomRecipients = null;
+    segSel.innerHTML = '<option value="">Loading segments…</option>';
+    try {
+      const r = await fetch('/api/campaigns?action=segments', { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const j = await r.json();
+      campaignSegments = j.ok ? j.segments : [];
+      segSel.innerHTML = campaignSegments.length
+        ? campaignSegments.map(s => `<option value="${s.key}">${s.label} — ${s.count} contacts</option>`).join('')
+        : '<option value="">No contacts yet</option>';
+      onCampaignSegmentChange();
+    } catch (e) {
+      segSel.innerHTML = '<option value="">Could not load segments</option>';
+    }
+    segSel.onchange = onCampaignSegmentChange;
   }
-  segSel.onchange = onCampaignSegmentChange;
 
   const tplSel = document.getElementById('camp-template');
   tplSel.innerHTML = '<option value="">Loading templates…</option>';
@@ -2553,7 +2568,8 @@ async function sendCampaignNow() {
   const name = document.getElementById('camp-name').value.trim();
   const segmentKey = document.getElementById('camp-segment').value;
   const template = document.getElementById('camp-template').value;
-  if (!segmentKey) { showToast('Error', 'Pick an audience', true); return; }
+  const usingCustomList = !!(campaignCustomRecipients && campaignCustomRecipients.length);
+  if (!usingCustomList && !segmentKey) { showToast('Error', 'Pick an audience', true); return; }
   if (!template) { showToast('Error', 'Pick a template', true); return; }
 
   const btn = document.getElementById('camp-send-btn');
@@ -2567,7 +2583,8 @@ async function sendCampaignNow() {
 
   while (true) {
     const result = await waApi('/api/campaign-send', {
-      segment_key: segmentKey, template_name: template, template_language: currentTemplateLang(),
+      ...(usingCustomList ? { custom_recipients: campaignCustomRecipients } : { segment_key: segmentKey }),
+      template_name: template, template_language: currentTemplateLang(),
       campaign_name: name || undefined, campaign_id: campaignId, offset,
     });
     if (!result.ok) {
@@ -2590,6 +2607,7 @@ async function sendCampaignNow() {
   showToast('Campaign Sent', `${totalSent} delivered, ${totalFailed} failed`);
   addActivity(`Campaign sent: ${name || template} → ${totalSent} recipients`);
   btn.disabled = false; btn.textContent = 'Send Now 📤';
+  campaignCustomRecipients = null;
   closeModal('modal-campaign');
   loadCampaigns();
 }
@@ -3476,21 +3494,34 @@ function repTrend(customers) {
 }
 
 // ---------- Visit frequency segments (your core ask) ----------
+let visitFrequencyBuckets = { '1st': [], '2nd': [], '3rd+': [] };
+
 function repFrequency(customers) {
   const seg = { '1st time': 0, '2nd time': 0, '3rd+ time': 0 };
+  visitFrequencyBuckets = { '1st': [], '2nd': [], '3rd+': [] };
   customers.forEach(c => {
     const v = c.visit_count || 1;
-    if (v <= 1) seg['1st time']++; else if (v === 2) seg['2nd time']++; else seg['3rd+ time']++;
+    const recipient = { phone: c.phone, name: c.name || '' };
+    if (v <= 1) { seg['1st time']++; if (c.phone) visitFrequencyBuckets['1st'].push(recipient); }
+    else if (v === 2) { seg['2nd time']++; if (c.phone) visitFrequencyBuckets['2nd'].push(recipient); }
+    else { seg['3rd+ time']++; if (c.phone) visitFrequencyBuckets['3rd+'].push(recipient); }
   });
   const max = Math.max(1, ...Object.values(seg));
   const colors = ['var(--accent)', '#5b8def', '#c77dff'];
+  const bucketKeys = ['1st', '2nd', '3rd+'];
   let rows = '';
   Object.entries(seg).forEach(([label, val], i) => {
     const w = (val / max) * 100;
+    const bucketKey = bucketKeys[i];
+    const hasContacts = visitFrequencyBuckets[bucketKey].length > 0;
     rows += `
       <div style="margin:12px 0">
-        <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px">
-          <span style="color:var(--text)">${label}</span><span style="color:var(--text2)">${val}</span>
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px;margin-bottom:5px">
+          <span style="color:var(--text)">${label}</span>
+          <span style="display:flex;align-items:center;gap:8px">
+            <span style="color:var(--text2)">${val}</span>
+            ${hasContacts ? `<button class="btn btn-outline" style="padding:2px 8px;font-size:11px" onclick="broadcastToFrequencyBucket('${bucketKey}')">Broadcast →</button>` : ''}
+          </span>
         </div>
         <div style="height:12px;background:var(--surface2);border-radius:6px;overflow:hidden">
           <div style="height:100%;width:${w}%;background:${colors[i]};border-radius:6px;transition:width .5s"></div>
@@ -3498,6 +3529,13 @@ function repFrequency(customers) {
       </div>`;
   });
   document.getElementById('rep-freq').innerHTML = rows;
+}
+
+function broadcastToFrequencyBucket(bucketKey) {
+  const recipients = visitFrequencyBuckets[bucketKey] || [];
+  if (!recipients.length) return;
+  showPage('campaigns');
+  openNewCampaign(recipients);
 }
 
 // ---------- Busiest days of week ----------
@@ -3543,9 +3581,12 @@ function repCategories(feedback) {
 
 // ---------- Recent feedback table ----------
 let lastFeedbackList = [];
+let selectedFeedbackPhones = new Map(); // phone -> name
 
 function repFeedTable(feedback) {
   lastFeedbackList = feedback;
+  selectedFeedbackPhones.clear();
+  updateFeedbackSelectionUI();
   const tb = document.getElementById('rep-feed');
   if (!feedback.length) return;
   const ord = ['1st','2nd','3rd','4th','5th'];
@@ -3559,7 +3600,11 @@ function repFeedTable(feedback) {
     const v = c.visit_count || 1;
     const vLabel = v <= 5 ? ord[v-1] + ' visit' : v + 'th visit';
     const badge = avg >= 3.5 ? 'badge-green' : avg >= 2.5 ? 'badge-yellow' : 'badge-red';
+    const hasPhone = !!c.phone;
+    const jsPhone = String(c.phone||'').replace(/'/g, "\\'");
+    const jsName = String(c.name||'').replace(/'/g, "\\'");
     return `<tr style="cursor:pointer" onclick="openFeedbackDetail('${f.id}')">
+      <td onclick="event.stopPropagation()">${hasPhone ? `<input type="checkbox" onchange="toggleFeedbackSelection('${jsPhone}','${jsName}',this.checked)">` : ''}</td>
       <td style="white-space:nowrap;color:var(--text2)">${whenStr}</td>
       <td>${esc(c.name || 'Guest')}<div style="font-size:11px;color:var(--text2)">${esc(c.phone||'')}</div></td>
       <td><span class="badge ${v>=2?'badge-green':''}" style="${v<2?'background:var(--surface2);color:var(--text2)':''}">${vLabel}</span></td>
@@ -3568,6 +3613,38 @@ function repFeedTable(feedback) {
       <td><button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="event.stopPropagation();openFeedbackDetail('${f.id}')">View</button></td>
     </tr>`;
   }).join('');
+}
+
+function toggleFeedbackSelection(phone, name, checked) {
+  if (checked) selectedFeedbackPhones.set(phone, name);
+  else selectedFeedbackPhones.delete(phone);
+  updateFeedbackSelectionUI();
+}
+
+function toggleAllFeedbackSelection(checked) {
+  selectedFeedbackPhones.clear();
+  if (checked) {
+    lastFeedbackList.forEach(f => {
+      const c = f.customers || {};
+      if (c.phone) selectedFeedbackPhones.set(c.phone, c.name || '');
+    });
+  }
+  document.querySelectorAll('#rep-feed input[type="checkbox"]').forEach(cb => cb.checked = checked);
+  updateFeedbackSelectionUI();
+}
+
+function updateFeedbackSelectionUI() {
+  const btn = document.getElementById('feed-send-selected-btn');
+  const countEl = document.getElementById('feed-selected-count');
+  const n = selectedFeedbackPhones.size;
+  countEl.textContent = n;
+  btn.style.display = n > 0 ? 'inline-flex' : 'none';
+}
+
+function sendToSelectedFeedback() {
+  const recipients = Array.from(selectedFeedbackPhones, ([phone, name]) => ({ phone, name }));
+  if (!recipients.length) return;
+  openNewCampaign(recipients);
 }
 
 const RATING_LABELS = { 1: 'Poor', 2: 'Average', 3: 'Good', 4: 'Excellent' };
