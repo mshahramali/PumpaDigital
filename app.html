@@ -1699,10 +1699,11 @@
                 <th>Visit</th>
                 <th>Avg</th>
                 <th>Comment</th>
+                <th></th>
               </tr>
             </thead>
             <tbody id="rep-feed">
-              <tr><td colspan="5"><div class="empty-state" style="padding:24px"><p>No feedback yet. Once customers start submitting, it appears here.</p></div></td></tr>
+              <tr><td colspan="6"><div class="empty-state" style="padding:24px"><p>No feedback yet. Once customers start submitting, it appears here.</p></div></td></tr>
             </tbody>
           </table>
         </div>
@@ -1858,6 +1859,56 @@
   </div>
 </div>
 
+<!-- FEEDBACK DETAIL MODAL -->
+<div class="modal-overlay" id="modal-feedback-detail">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('modal-feedback-detail')">✕</button>
+    <div class="modal-title" id="fd-title">Feedback Detail</div>
+    <div style="display:flex;flex-direction:column;gap:14px;font-size:14px">
+
+      <div>
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text2);margin-bottom:6px">Customer</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px">
+          <div><span style="color:var(--text2)">Name:</span> <span id="fd-name">—</span></div>
+          <div><span style="color:var(--text2)">Phone:</span> <span id="fd-phone">—</span></div>
+          <div><span style="color:var(--text2)">City:</span> <span id="fd-city">—</span></div>
+          <div><span style="color:var(--text2)">Birthday:</span> <span id="fd-birthday">—</span></div>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text2);margin-bottom:6px">Visit</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px">
+          <div><span style="color:var(--text2)">Server:</span> <span id="fd-server">—</span></div>
+          <div><span style="color:var(--text2)">Table:</span> <span id="fd-table">—</span></div>
+          <div><span style="color:var(--text2)">Found us via:</span> <span id="fd-source">—</span></div>
+          <div><span style="color:var(--text2)">Visit type:</span> <span id="fd-visit">—</span></div>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text2);margin-bottom:6px">Ratings</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px">
+          <div><span style="color:var(--text2)">Food:</span> <span id="fd-food">—</span></div>
+          <div><span style="color:var(--text2)">Service:</span> <span id="fd-service">—</span></div>
+          <div><span style="color:var(--text2)">Cleanliness:</span> <span id="fd-cleanliness">—</span></div>
+          <div><span style="color:var(--text2)">Ambiance:</span> <span id="fd-ambiance">—</span></div>
+          <div><span style="color:var(--text2)">Value for Money:</span> <span id="fd-value">—</span></div>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text2);margin-bottom:6px">Comments</div>
+        <div id="fd-comments" style="color:var(--text2)">—</div>
+      </div>
+
+    </div>
+    <div style="margin-top:16px">
+      <button class="btn btn-outline" style="width:100%;justify-content:center" onclick="closeModal('modal-feedback-detail')">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- TOAST -->
 <div class="toast" id="toast">
   <div class="toast-title" id="toast-title">Success</div>
@@ -1865,6 +1916,7 @@
 </div>
 
 <script>
+
 // ===== STATE =====
 let state = {
   contacts: [],
@@ -3351,7 +3403,7 @@ async function loadReports() {
     .select('id, name, phone, visit_count, first_visit_at, last_visit_at, created_at')
     .order('created_at', { ascending: false });
   const feedQ = sb.from('feedback')
-    .select('id, customer_id, food, service, cleanliness, ambiance, value_money, comments, created_at, customers(name, phone, visit_count)')
+    .select('id, customer_id, server_name, table_no, food, service, cleanliness, ambiance, value_money, source, visit_claim, comments, created_at, customers(name, phone, visit_count, birthday, city)')
     .order('created_at', { ascending: false })
     .limit(400);
   if (bizId) { custQ.eq('business_id', bizId); feedQ.eq('business_id', bizId); }
@@ -3486,7 +3538,10 @@ function repCategories(feedback) {
 }
 
 // ---------- Recent feedback table ----------
+let lastFeedbackList = [];
+
 function repFeedTable(feedback) {
+  lastFeedbackList = feedback;
   const tb = document.getElementById('rep-feed');
   if (!feedback.length) return;
   const ord = ['1st','2nd','3rd','4th','5th'];
@@ -3500,14 +3555,48 @@ function repFeedTable(feedback) {
     const v = c.visit_count || 1;
     const vLabel = v <= 5 ? ord[v-1] + ' visit' : v + 'th visit';
     const badge = avg >= 3.5 ? 'badge-green' : avg >= 2.5 ? 'badge-yellow' : 'badge-red';
-    return `<tr>
+    return `<tr style="cursor:pointer" onclick="openFeedbackDetail('${f.id}')">
       <td style="white-space:nowrap;color:var(--text2)">${whenStr}</td>
       <td>${esc(c.name || 'Guest')}<div style="font-size:11px;color:var(--text2)">${esc(c.phone||'')}</div></td>
       <td><span class="badge ${v>=2?'badge-green':''}" style="${v<2?'background:var(--surface2);color:var(--text2)':''}">${vLabel}</span></td>
       <td><span class="badge ${badge}">${avg}</span></td>
       <td style="max-width:220px;color:var(--text2)">${esc(f.comments || '—')}</td>
+      <td><button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="event.stopPropagation();openFeedbackDetail('${f.id}')">View</button></td>
     </tr>`;
   }).join('');
+}
+
+const RATING_LABELS = { 1: 'Poor', 2: 'Average', 3: 'Good', 4: 'Excellent' };
+const VISIT_LABELS = { first_time: 'First time', visited_before: 'Visited before', regular: 'Regular customer' };
+
+function openFeedbackDetail(id) {
+  const f = lastFeedbackList.find(x => String(x.id) === String(id));
+  if (!f) return;
+  const c = f.customers || {};
+
+  document.getElementById('fd-title').textContent =
+    'Feedback — ' + new Date(f.created_at).toLocaleDateString([], { month:'short', day:'numeric', year:'numeric' });
+
+  document.getElementById('fd-name').textContent = c.name || '—';
+  document.getElementById('fd-phone').textContent = c.phone || '—';
+  document.getElementById('fd-city').textContent = c.city || '—';
+  document.getElementById('fd-birthday').textContent = c.birthday
+    ? new Date(c.birthday).toLocaleDateString([], { month:'short', day:'numeric', year:'numeric' }) : '—';
+
+  document.getElementById('fd-server').textContent = f.server_name || '—';
+  document.getElementById('fd-table').textContent = f.table_no || '—';
+  document.getElementById('fd-source').textContent = f.source || '—';
+  document.getElementById('fd-visit').textContent = VISIT_LABELS[f.visit_claim] || f.visit_claim || '—';
+
+  document.getElementById('fd-food').textContent = RATING_LABELS[f.food] || '—';
+  document.getElementById('fd-service').textContent = RATING_LABELS[f.service] || '—';
+  document.getElementById('fd-cleanliness').textContent = RATING_LABELS[f.cleanliness] || '—';
+  document.getElementById('fd-ambiance').textContent = RATING_LABELS[f.ambiance] || '—';
+  document.getElementById('fd-value').textContent = RATING_LABELS[f.value_money] || '—';
+
+  document.getElementById('fd-comments').textContent = f.comments || '—';
+
+  openModal('modal-feedback-detail');
 }
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
