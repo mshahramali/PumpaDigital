@@ -1196,8 +1196,8 @@
         <span class="icon">📋</span> Templates
       </div>
       <div class="nav-section">Tools</div>
-      <div class="nav-item" onclick="showPage('qr', this)">
-        <span class="icon">📱</span> QR Form
+      <div class="nav-item" onclick="window.location.href='/feedback-setup.html'">
+        <span class="icon">📱</span> Feedback Form
       </div>
       <div class="nav-item" onclick="showPage('reports', this)">
         <span class="icon">📈</span> Reports
@@ -1540,36 +1540,8 @@
         </div>
       </div>
 
-      <div class="grid-3">
-        <div class="campaign-card">
-          <div class="campaign-top">
-            <div>
-              <div class="campaign-name">hello_world</div>
-              <div class="campaign-meta">Utility • English (US)</div>
-            </div>
-            <span class="badge badge-green">Active</span>
-          </div>
-          <div style="font-size:12px;color:var(--text2);line-height:1.5">"Welcome and congratulations! This message demonstrates your ability to send a WhatsApp message..."</div>
-          <div style="margin-top:10px;font-size:11px;color:var(--text3)">Default test template from Meta</div>
-        </div>
-        <div class="campaign-card">
-          <div class="campaign-top">
-            <div>
-              <div class="campaign-name">usama_silk_thank_you</div>
-              <div class="campaign-meta">Utility • English</div>
-            </div>
-            <span class="badge badge-yellow">In Review</span>
-          </div>
-          <div style="font-size:12px;color:var(--text2);line-height:1.5">"Dear {{1}}, thank you for shopping at Usama Silk! We are delighted to have served you today..."</div>
-          <div style="margin-top:10px;font-size:11px;color:var(--text3)">Submitted Jun 8, 2026 • Approval in 24-48hrs</div>
-        </div>
-        <div class="campaign-card" style="border-style:dashed;display:flex;align-items:center;justify-content:center;cursor:pointer" onclick="window.open('https://business.facebook.com/wa/manage/message-templates','_blank')">
-          <div style="text-align:center;color:var(--text3)">
-            <div style="font-size:24px;margin-bottom:8px">+</div>
-            <div style="font-size:13px">Create New Template</div>
-            <div style="font-size:11px;margin-top:4px">Opens Meta Manager</div>
-          </div>
-        </div>
+      <div class="grid-3" id="templates-grid">
+        <div style="grid-column:1/-1;color:var(--text3);font-size:13px;padding:20px 0">Loading templates…</div>
       </div>
     </div>
 
@@ -1946,6 +1918,7 @@ function showPage(name, el) {
   document.getElementById('page-' + name).classList.add('active');
   if (el) el.classList.add('active');
   if (name === 'send') loadSettingsDisplay();
+  if (name === 'templates') loadTemplatesFromMeta();
   const main = document.querySelector('.main');
   const mobile = window.innerWidth <= 768;
   if (name === 'inbox') {
@@ -2310,6 +2283,83 @@ async function loadCampaignsFromSupabase() {
     created: row.created_at,
     sent: row.sent_count || 0
   }));
+}
+
+// ===== TEMPLATES: LIVE FROM META =====
+let templatesLoaded = false;
+async function loadTemplatesFromMeta(force) {
+  if (templatesLoaded && !force) return;
+  const grid = document.getElementById('templates-grid');
+  grid.innerHTML = '<div style="grid-column:1/-1;color:var(--text3);font-size:13px;padding:20px 0">Loading templates…</div>';
+
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) {
+    grid.innerHTML = '<div style="grid-column:1/-1;color:var(--text3);font-size:13px;padding:20px 0">Not logged in.</div>';
+    return;
+  }
+
+  let json;
+  try {
+    const res = await fetch('/api/templates', {
+      headers: { 'Authorization': `Bearer ${session.access_token}` }
+    });
+    json = await res.json();
+  } catch (e) {
+    grid.innerHTML = '<div style="grid-column:1/-1;color:var(--text3);font-size:13px;padding:20px 0">Could not reach the server. Try again.</div>';
+    return;
+  }
+
+  if (!json.ok) {
+    grid.innerHTML = `<div style="grid-column:1/-1;color:var(--text3);font-size:13px;padding:20px 0">${json.error || 'Could not load templates.'}</div>`;
+    return;
+  }
+
+  templatesLoaded = true;
+  const templates = json.templates || [];
+  const createCard = `
+    <div class="campaign-card" style="border-style:dashed;display:flex;align-items:center;justify-content:center;cursor:pointer" onclick="window.open('https://business.facebook.com/wa/manage/message-templates','_blank')">
+      <div style="text-align:center;color:var(--text3)">
+        <div style="font-size:24px;margin-bottom:8px">+</div>
+        <div style="font-size:13px">Create New Template</div>
+        <div style="font-size:11px;margin-top:4px">Opens Meta Manager</div>
+      </div>
+    </div>`;
+
+  if (templates.length === 0) {
+    grid.innerHTML = `<div style="grid-column:1/-1;color:var(--text3);font-size:13px;padding:20px 0">No templates found for this WhatsApp account yet.</div>` + createCard;
+    return;
+  }
+
+  const statusBadge = (status) => {
+    const s = (status || '').toUpperCase();
+    if (s === 'APPROVED') return '<span class="badge badge-green">Active</span>';
+    if (s === 'PENDING') return '<span class="badge badge-yellow">In Review</span>';
+    if (s === 'REJECTED') return '<span class="badge badge-red">Rejected</span>';
+    return `<span class="badge">${status || 'Unknown'}</span>`;
+  };
+
+  const bodyPreview = (t) => {
+    const body = (t.components || []).find(c => c.type === 'BODY');
+    const text = body?.text || '';
+    return text.length > 140 ? text.slice(0, 140) + '…' : text;
+  };
+
+  const escapeHtml = (s) => String(s || '').replace(/[&<>"']/g, m => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[m]));
+
+  grid.innerHTML = templates.map(t => `
+    <div class="campaign-card">
+      <div class="campaign-top">
+        <div>
+          <div class="campaign-name">${escapeHtml(t.name)}</div>
+          <div class="campaign-meta">${escapeHtml(t.category || '')} • ${escapeHtml(t.language || '')}</div>
+        </div>
+        ${statusBadge(t.status)}
+      </div>
+      <div style="font-size:12px;color:var(--text2);line-height:1.5">"${escapeHtml(bodyPreview(t))}"</div>
+    </div>
+  `).join('') + createCard;
 }
 
 function openNewCampaign() {
