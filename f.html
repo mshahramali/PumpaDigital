@@ -19,7 +19,7 @@
     --bad: #c0392b;
   }
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  html, body { height:100%; }
+  html { height:100%; }
   body {
     font-family:'Archivo',system-ui,sans-serif; color:var(--ink);
     background:
@@ -27,6 +27,8 @@
       radial-gradient(900px 600px at 110% 110%, rgba(255,255,255,.04), transparent 60%),
       var(--table);
     display:grid; place-items:center; padding:22px 14px;
+    min-height:100vh;    /* fallback for older browsers */
+    min-height:100dvh;   /* adapts to mobile browser toolbar collapsing, prevents top content getting pushed off-screen */
   }
 
   /* ——— the card ——— */
