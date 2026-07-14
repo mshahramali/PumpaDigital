@@ -83,6 +83,9 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: false, reason: 'user lookup error', detail: usersJson });
     }
     let userId = usersJson?.users?.[0]?.id || null;
+    if ((usersJson?.users?.length || 0) > 1) {
+      console.error('COMPLETE-LOGIN: WARNING multiple users matched email →', email, usersJson.users.map(u => u.id));
+    }
 
     // 3b. Admin recovery path: if the account already exists (so normal
     //     creation would just no-op) but the client's original signup was
@@ -97,15 +100,19 @@ module.exports = async (req, res) => {
       }
       const resetRes = await sb(`/auth/v1/admin/users/${userId}`, {
         method: 'PUT',
-        body: JSON.stringify({ password: reset_password }),
+        body: JSON.stringify({ password: reset_password, email_confirm: true }),
       });
       const resetJson = await resetRes.json();
       if (!resetRes.ok) {
         console.error('COMPLETE-LOGIN: password reset failed →', resetRes.status, JSON.stringify(resetJson).slice(0, 300));
         return res.status(200).json({ ok: false, reason: 'password reset failed', detail: resetJson });
       }
-      console.log('COMPLETE-LOGIN: admin password reset →', email);
-      return res.status(200).json({ ok: true, reset: true, login_email: email });
+      console.log('COMPLETE-LOGIN: admin password reset →', email, 'targetUserId:', userId);
+      return res.status(200).json({
+        ok: true, reset: true, login_email: email, target_user_id: userId,
+        returned_id: resetJson?.id, returned_email: resetJson?.email,
+        email_confirmed_at: resetJson?.email_confirmed_at,
+      });
     }
 
     // 4. Idempotency: if the user's profile is ALREADY linked to THIS
