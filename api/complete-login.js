@@ -50,7 +50,7 @@ function makePassword() {
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
   try {
-    const { waba_id } = req.body || {};
+    const { waba_id, reset_password, admin_secret } = req.body || {};
     if (!waba_id) return res.status(400).json({ error: 'waba_id required' });
 
     // 1. Business must exist (webhook provisioned it).
@@ -83,6 +83,30 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: false, reason: 'user lookup error', detail: usersJson });
     }
     let userId = usersJson?.users?.[0]?.id || null;
+
+    // 3b. Admin recovery path: if the account already exists (so normal
+    //     creation would just no-op) but the client's original signup was
+    //     lost to the popup-timing race, an admin can force-set a known
+    //     password by passing reset_password + admin_secret. Gated behind
+    //     ADMIN_ACTION_SECRET (a Vercel env var only the project owner
+    //     knows) — NOT the Supabase service key, so nothing high-privilege
+    //     ever needs to be pasted into a browser.
+    if (userId && reset_password) {
+      if (!process.env.ADMIN_ACTION_SECRET || admin_secret !== process.env.ADMIN_ACTION_SECRET) {
+        return res.status(403).json({ ok: false, reason: 'invalid admin_secret' });
+      }
+      const resetRes = await sb(`/auth/v1/admin/users/${userId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ password: reset_password }),
+      });
+      const resetJson = await resetRes.json();
+      if (!resetRes.ok) {
+        console.error('COMPLETE-LOGIN: password reset failed →', resetRes.status, JSON.stringify(resetJson).slice(0, 300));
+        return res.status(200).json({ ok: false, reason: 'password reset failed', detail: resetJson });
+      }
+      console.log('COMPLETE-LOGIN: admin password reset →', email);
+      return res.status(200).json({ ok: true, reset: true, login_email: email });
+    }
 
     // 4. Idempotency: if the user's profile is ALREADY linked to THIS
     //    business, this signup was fully completed — do nothing.
