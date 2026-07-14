@@ -55,12 +55,22 @@ module.exports = async (req, res) => {
 
     // 1. Business must exist (webhook provisioned it).
     const bizRes = await sb(`/rest/v1/businesses?whatsapp_waba_id=eq.${waba_id}&select=id&limit=1`);
-    const biz = (await bizRes.json())[0];
+    const bizJson = await bizRes.json();
+    if (!bizRes.ok) {
+      console.error('COMPLETE-LOGIN: businesses query failed →', bizRes.status, JSON.stringify(bizJson).slice(0, 300));
+      return res.status(200).json({ ok: false, reason: 'business lookup error', detail: bizJson });
+    }
+    const biz = bizJson[0];
     if (!biz) return res.status(200).json({ ok: false, reason: 'business not provisioned yet' });
 
     // 2. Email must exist (browser stored it). Password may exist too.
     const psRes = await sb(`/rest/v1/pending_signups?waba_id=eq.${waba_id}&select=email,password&limit=1`);
-    const ps = (await psRes.json())[0];
+    const psJson = await psRes.json();
+    if (!psRes.ok) {
+      console.error('COMPLETE-LOGIN: pending_signups query failed →', psRes.status, JSON.stringify(psJson).slice(0, 300));
+      return res.status(200).json({ ok: false, reason: 'pending signup lookup error', detail: psJson });
+    }
+    const ps = psJson[0];
     if (!ps || !ps.email) return res.status(200).json({ ok: false, reason: 'email not captured yet' });
 
     const email = ps.email;
@@ -68,6 +78,10 @@ module.exports = async (req, res) => {
     // 3. Does the user already exist?
     const usersRes = await sb(`/auth/v1/admin/users?email=${encodeURIComponent(email)}`);
     const usersJson = await usersRes.json();
+    if (!usersRes.ok) {
+      console.error('COMPLETE-LOGIN: users lookup failed →', usersRes.status, JSON.stringify(usersJson).slice(0, 300));
+      return res.status(200).json({ ok: false, reason: 'user lookup error', detail: usersJson });
+    }
     let userId = usersJson?.users?.[0]?.id || null;
 
     // 4. Idempotency: if the user's profile is ALREADY linked to THIS
