@@ -337,7 +337,11 @@ export default async function handler(req, res) {
             }
             if (value.statuses) {
               for (const s of value.statuses) {
-                console.log(`Status ${s.id}: ${s.status}`);
+                if (s.status === 'failed' && s.errors) {
+                  console.log(`Status ${s.id}: failed —`, JSON.stringify(s.errors));
+                } else {
+                  console.log(`Status ${s.id}: ${s.status}`);
+                }
                 await updateMessageStatus(s.id, s.status);
               }
             }
