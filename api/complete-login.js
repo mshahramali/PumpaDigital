@@ -75,16 +75,24 @@ module.exports = async (req, res) => {
 
     const email = ps.email;
 
-    // 3. Does the user already exist?
-    const usersRes = await sb(`/auth/v1/admin/users?email=${encodeURIComponent(email)}`);
+    // 3. Does the user already exist? Supabase's admin users endpoint does
+    //    NOT reliably support server-side filtering by ?email= — it can
+    //    silently ignore that param and return the default (unfiltered)
+    //    page, which caused a real bug here: earlier calls picked up
+    //    users[0] from the default listing instead of the actual match.
+    //    Fetch a page of users and filter client-side by exact,
+    //    case-insensitive email match instead.
+    const usersRes = await sb(`/auth/v1/admin/users?per_page=1000`);
     const usersJson = await usersRes.json();
     if (!usersRes.ok) {
       console.error('COMPLETE-LOGIN: users lookup failed →', usersRes.status, JSON.stringify(usersJson).slice(0, 300));
       return res.status(200).json({ ok: false, reason: 'user lookup error', detail: usersJson });
     }
-    let userId = usersJson?.users?.[0]?.id || null;
-    if ((usersJson?.users?.length || 0) > 1) {
-      console.error('COMPLETE-LOGIN: WARNING multiple users matched email →', email, usersJson.users.map(u => u.id));
+    const wantedEmail = email.toLowerCase();
+    const matches = (usersJson?.users || []).filter(u => (u.email || '').toLowerCase() === wantedEmail);
+    let userId = matches[0]?.id || null;
+    if (matches.length > 1) {
+      console.error('COMPLETE-LOGIN: WARNING multiple users matched email →', email, matches.map(u => u.id));
     }
 
     // 3b. Admin recovery path: if the account already exists (so normal
