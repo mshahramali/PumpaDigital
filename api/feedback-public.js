@@ -8,11 +8,15 @@
 //                   3. sends WhatsApp thank-you template (with Google review link if set)
 //                   Feedback is saved even if the WhatsApp send fails.
 //
-// Templates expected on each restaurant's WABA (approved in Meta, language code 'en'):
-//   feedback_thanks_google_review — body vars {{1}}=customer name, {{2}}=restaurant name, {{3}}=review URL
+// The thank-you template name is configurable per-restaurant via feedback-setup.html
+// (feedback_forms.thankyou_template_review / thankyou_template_no_review), and falls
+// back to these defaults if the restaurant hasn't picked one. Whichever template is
+// used must be APPROVED on that restaurant's WABA (language code 'en') with body vars:
+//   thankyou_template_review    — {{1}}=customer name, {{2}}=restaurant name, {{3}}=review URL
 //     (used when the restaurant has a google_review_url set)
-//   feedback_thanks — body vars {{1}}=customer name, {{2}}=restaurant name
+//   thankyou_template_no_review — {{1}}=customer name, {{2}}=restaurant name
 //     (used when no google_review_url is set)
+// Defaults if unset: feedback_thanks_google_review / feedback_thanks
 //
 // No npm packages — raw fetch against Supabase REST + Meta Graph API.
 
@@ -76,7 +80,7 @@ module.exports = async (req, res) => {
     }
 
     // 1. Resolve form + business
-    const fr = await sb(`/rest/v1/feedback_forms?slug=eq.${encodeURIComponent(slug)}&is_active=eq.true&select=business_id,restaurant_name,google_review_url&limit=1`);
+    const fr = await sb(`/rest/v1/feedback_forms?slug=eq.${encodeURIComponent(slug)}&is_active=eq.true&select=business_id,restaurant_name,google_review_url,thankyou_template_review,thankyou_template_no_review&limit=1`);
     const form = (await fr.json())[0];
     if (!form) return res.status(404).json({ ok: false, error: 'form not found' });
     const bizId = form.business_id;
@@ -143,7 +147,9 @@ module.exports = async (req, res) => {
         const params = hasReview
           ? [name, form.restaurant_name, form.google_review_url]
           : [name, form.restaurant_name];
-        const tpl = hasReview ? 'feedback_thanks_google_review' : 'feedback_thanks';
+        const tpl = hasReview
+          ? (form.thankyou_template_review || 'feedback_thanks_google_review')
+          : (form.thankyou_template_no_review || 'feedback_thanks');
 
         const wr = await fetch(`${GRAPH}/${biz.whatsapp_phone_number_id}/messages`, {
           method: 'POST',
