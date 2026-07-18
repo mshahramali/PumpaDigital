@@ -11,12 +11,17 @@
 // The thank-you template name is configurable per-restaurant via feedback-setup.html
 // (feedback_forms.thankyou_template_review / thankyou_template_no_review), and falls
 // back to these defaults if the restaurant hasn't picked one. Whichever template is
-// used must be APPROVED on that restaurant's WABA (language code 'en') with body vars:
-//   thankyou_template_review    — {{1}}=customer name, {{2}}=restaurant name, {{3}}=review URL
-//     (used when the restaurant has a google_review_url set)
-//   thankyou_template_no_review — {{1}}=customer name, {{2}}=restaurant name
-//     (used when no google_review_url is set)
+// used must be APPROVED on that restaurant's WABA (language code 'en').
+//   thankyou_template_review    — used when the restaurant has a google_review_url set
+//   thankyou_template_no_review — used when no google_review_url is set
 // Defaults if unset: feedback_thanks_google_review / feedback_thanks
+//
+// The number of {{n}} body variables actually sent is looked up live from Meta for
+// whichever template is configured (see getTemplateVarCount) — it is NOT assumed
+// from the template's name or from whether a review link exists, since a restaurant
+// can point either slot at any approved template with any variable count. Values are
+// filled in this fixed order and truncated to however many the template needs:
+//   1) customer name   2) restaurant name   3) google review URL
 //
 // No npm packages — raw fetch against Supabase REST + Meta Graph API.
 
@@ -53,6 +58,29 @@ async function getToken(businessId) {
     if (row?.whatsapp_access_token) return row.whatsapp_access_token;
   } catch (e) { /* fall through */ }
   return null;
+}
+
+// Look up how many {{n}} body variables a given template actually has, straight from
+// Meta — never assumed — so params always match whatever template is currently
+// configured, no matter which one the restaurant picked in feedback-setup.html.
+// Returns null if the template can't be found/read (caller falls back to a guess).
+async function getTemplateVarCount(wabaId, token, tplName) {
+  try {
+    const r = await fetch(
+      `${GRAPH}/${wabaId}/message_templates?fields=name,language,components&limit=200`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const j = await r.json();
+    if (!r.ok) return null;
+    const match = (j.data || []).find(t => t.name === tplName);
+    if (!match) return null;
+    const body = (match.components || []).find(c => (c.type || '').toUpperCase() === 'BODY');
+    if (!body?.text) return 0;
+    const vars = new Set((body.text.match(/\{\{\s*\d+\s*\}\}/g) || []));
+    return vars.size;
+  } catch (e) {
+    return null;
+  }
 }
 
 module.exports = async (req, res) => {
@@ -138,18 +166,24 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, whatsapp_sent: false, opted_out: true });
     }
     try {
-      const bizRes = await sb(`/rest/v1/businesses?id=eq.${bizId}&select=whatsapp_phone_number_id&limit=1`);
+      const bizRes = await sb(`/rest/v1/businesses?id=eq.${bizId}&select=whatsapp_phone_number_id,whatsapp_waba_id&limit=1`);
       const biz = (await bizRes.json())[0];
       const token = await getToken(bizId);
 
       if (biz?.whatsapp_phone_number_id && token) {
         const hasReview = !!form.google_review_url;
-        const params = hasReview
-          ? [name, form.restaurant_name, form.google_review_url]
-          : [name, form.restaurant_name];
         const tpl = hasReview
           ? (form.thankyou_template_review || 'feedback_thanks_google_review')
           : (form.thankyou_template_no_review || 'feedback_thanks');
+
+        // Ask Meta how many body variables this exact template actually has —
+        // never assume 2 vs 3 from whether a review link exists. Falls back to
+        // the historical guess only if the lookup itself fails (e.g. network hiccup).
+        let varCount = biz.whatsapp_waba_id ? await getTemplateVarCount(biz.whatsapp_waba_id, token, tpl) : null;
+        if (varCount == null) varCount = hasReview ? 3 : 2;
+
+        const allValues = [name, form.restaurant_name, form.google_review_url || ''];
+        const params = allValues.slice(0, varCount);
 
         const wr = await fetch(`${GRAPH}/${biz.whatsapp_phone_number_id}/messages`, {
           method: 'POST',
