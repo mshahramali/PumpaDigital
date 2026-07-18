@@ -1507,10 +1507,11 @@
               </select>
             </div>
             <div class="form-group">
-              <label class="form-label">Customer Name (for {{1}} variable)</label>
+              <label class="form-label" id="send-name-label">Customer Name (for {{1}} variable)</label>
               <input type="text" class="form-input" id="send-name" placeholder="Ahmed">
               <div style="font-size:11.5px;color:var(--text3);margin-top:6px" id="send-template-hint"></div>
             </div>
+            <div id="send-extra-vars"></div>
           </div>
           <div id="text-fields" style="display:none">
             <div class="form-group">
@@ -2744,15 +2745,37 @@ async function loadSendTemplates(force) {
 
 function updateSendTemplateHint() {
   const hintEl = document.getElementById('send-template-hint');
+  const labelEl = document.getElementById('send-name-label');
+  const extraWrap = document.getElementById('send-extra-vars');
   const name = document.getElementById('send-template').value;
   const t = sendTemplates.find(t => t.name === name);
-  if (!t) { hintEl.textContent = ''; return; }
+
+  if (!t) { hintEl.textContent = ''; extraWrap.innerHTML = ''; labelEl.textContent = 'Customer Name (for {{1}} variable)'; return; }
+
   const n = sendTemplateVarCount(t);
-  hintEl.textContent = n === 0
-    ? 'This template has no body variables — the customer name field will be ignored.'
-    : n === 1
-      ? 'This template has 1 body variable — filled with the customer name above.'
-      : `⚠️ This template needs ${n} body variables. Send Message only fills {{1}} — sending will likely fail. Use the Campaigns tab for multi-variable templates, or create a 1-variable template on Meta.`;
+
+  if (n === 0) {
+    hintEl.textContent = 'This template has no body variables — the customer name field will be ignored.';
+    labelEl.textContent = 'Customer Name (not used by this template)';
+    extraWrap.innerHTML = '';
+    return;
+  }
+
+  labelEl.textContent = 'Variable {{1}} — Customer Name';
+  hintEl.textContent = n === 1
+    ? 'This template has 1 body variable.'
+    : `This template has ${n} body variables — fill in ${n - 1} more below.`;
+
+  // Build input boxes for variables 2..n (variable 1 stays the existing "customer name" field)
+  let html = '';
+  for (let i = 2; i <= n; i++) {
+    html += `
+      <div class="form-group">
+        <label class="form-label">Variable {{${i}}}</label>
+        <input type="text" class="form-input send-var-input" data-var="${i}" placeholder="Value for {{${i}}}">
+      </div>`;
+  }
+  extraWrap.innerHTML = html;
 }
 
 async function sendMessage() {
@@ -2776,9 +2799,21 @@ async function sendMessage() {
     const varCount = tpl ? sendTemplateVarCount(tpl) : 1; // fallback guess if metadata missing
     const language = tpl?.language || 'en';
 
+    // Gather variable {{1}} (customer name) plus any extra {{2..n}} inputs generated
+    // for this template, in order — sized to exactly whatever the template needs.
+    const values = [cname];
     if (varCount > 1) {
-      showToast('Error', `This template needs ${varCount} variables — Send Message only supports 0 or 1. Use Campaigns for this template.`, true);
-      return;
+      const missing = [];
+      for (let i = 2; i <= varCount; i++) {
+        const input = document.querySelector(`.send-var-input[data-var="${i}"]`);
+        const v = (input?.value || '').trim();
+        if (!v) missing.push(i);
+        values.push(v);
+      }
+      if (missing.length) {
+        showToast('Error', `Fill in variable${missing.length > 1 ? 's' : ''} {{${missing.join('}}, {{')}}} before sending`, true);
+        return;
+      }
     }
 
     body = {
@@ -2788,9 +2823,9 @@ async function sendMessage() {
       template: {
         name: tname,
         language: { code: language },
-        components: varCount === 1 ? [{
+        components: varCount > 0 ? [{
           type: 'body',
-          parameters: [{ type: 'text', text: cname }]
+          parameters: values.slice(0, varCount).map(v => ({ type: 'text', text: v }))
         }] : []
       }
     };
