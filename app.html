@@ -1985,13 +1985,25 @@ async function checkAuthAndInit() {
   state.profile = profile;
   state.profile.email = session.user.email;
 
-  // Reflect the real user in the sidebar
-  const displayName = profile.full_name || session.user.email;
-  document.getElementById('user-display-name').textContent = displayName;
-  document.getElementById('user-display-role').textContent =
-    profile.role === 'admin' ? 'PUMPA Admin' : 'Client Account';
+  // Reflect the real user in the sidebar: business name on top, email underneath
+  // (falls back to the old name/role display for admins or businesses with no name yet)
+  let topLine = profile.full_name || session.user.email;
+  let subLine = profile.role === 'admin' ? 'PUMPA Admin' : 'Client Account';
+
+  if (profile.role !== 'admin' && profile.business_id) {
+    try {
+      const { data: biz } = await sb.from('businesses').select('name').eq('id', profile.business_id).single();
+      if (biz?.name) {
+        topLine = biz.name;
+        subLine = session.user.email;
+      }
+    } catch (e) { /* keep the fallback display above */ }
+  }
+
+  document.getElementById('user-display-name').textContent = topLine;
+  document.getElementById('user-display-role').textContent = subLine;
   document.getElementById('user-avatar-initial').textContent =
-    displayName.charAt(0).toUpperCase();
+    topLine.charAt(0).toUpperCase();
 
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
