@@ -1502,14 +1502,14 @@
           <div id="template-fields">
             <div class="form-group">
               <label class="form-label">Template Name</label>
-              <select class="form-select" id="send-template">
-                <option value="hello_world">hello_world (test)</option>
-                <option value="usama_silk_thank_you">usama_silk_thank_you</option>
+              <select class="form-select" id="send-template" onchange="updateSendTemplateHint()">
+                <option value="">Loading templates…</option>
               </select>
             </div>
             <div class="form-group">
               <label class="form-label">Customer Name (for {{1}} variable)</label>
               <input type="text" class="form-input" id="send-name" placeholder="Ahmed">
+              <div style="font-size:11.5px;color:var(--text3);margin-top:6px" id="send-template-hint"></div>
             </div>
           </div>
           <div id="text-fields" style="display:none">
@@ -2032,7 +2032,7 @@ function showPage(name, el) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-' + name).classList.add('active');
   if (el) el.classList.add('active');
-  if (name === 'send') loadSettingsDisplay();
+  if (name === 'send') { loadSettingsDisplay(); loadSendTemplates(); }
   if (name === 'templates') loadTemplatesFromMeta();
   if (name === 'reports') loadReports();
   if (name === 'campaigns') loadCampaigns();
@@ -2697,6 +2697,52 @@ function toggleSendType() {
   document.getElementById('text-fields').style.display = t === 'text' ? 'block' : 'none';
 }
 
+// ===== SEND MESSAGE: live templates from Meta =====
+let sendTemplates = [];
+let sendTemplatesLoaded = false;
+
+function sendTemplateVarCount(t) {
+  const body = (t.components || []).find(c => (c.type || '').toUpperCase() === 'BODY');
+  if (!body?.text) return 0;
+  return new Set(body.text.match(/\{\{\s*\d+\s*\}\}/g) || []).size;
+}
+
+async function loadSendTemplates(force) {
+  if (sendTemplatesLoaded && !force) { updateSendTemplateHint(); return; }
+  const sel = document.getElementById('send-template');
+  sel.innerHTML = '<option value="">Loading templates…</option>';
+
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) { sel.innerHTML = '<option value="">Not logged in</option>'; return; }
+
+  try {
+    const r = await fetch('/api/templates', { headers: { Authorization: `Bearer ${session.access_token}` } });
+    const j = await r.json();
+    sendTemplates = j.ok ? (j.templates || []).filter(t => (t.status || '').toUpperCase() === 'APPROVED') : [];
+  } catch (e) {
+    sendTemplates = [];
+  }
+
+  sendTemplatesLoaded = true;
+  sel.innerHTML = sendTemplates.length
+    ? sendTemplates.map(t => `<option value="${t.name}">${t.name} (${t.language || ''})</option>`).join('')
+    : '<option value="">No approved templates found</option>';
+  updateSendTemplateHint();
+}
+
+function updateSendTemplateHint() {
+  const hintEl = document.getElementById('send-template-hint');
+  const name = document.getElementById('send-template').value;
+  const t = sendTemplates.find(t => t.name === name);
+  if (!t) { hintEl.textContent = ''; return; }
+  const n = sendTemplateVarCount(t);
+  hintEl.textContent = n === 0
+    ? 'This template has no body variables — the customer name field will be ignored.'
+    : n === 1
+      ? 'This template has 1 body variable — filled with the customer name above.'
+      : `⚠️ This template needs ${n} body variables. Send Message only fills {{1}} — sending will likely fail. Use the Campaigns tab for multi-variable templates, or create a 1-variable template on Meta.`;
+}
+
 async function sendMessage() {
   const phone = document.getElementById('send-phone').value.trim();
   const type = document.getElementById('send-type').value;
@@ -2712,15 +2758,25 @@ async function sendMessage() {
   let body;
   if (type === 'template') {
     const tname = document.getElementById('send-template').value;
+    if (!tname) { showToast('Error', 'Choose a template', true); return; }
     const cname = document.getElementById('send-name').value || 'Customer';
+    const tpl = sendTemplates.find(t => t.name === tname);
+    const varCount = tpl ? sendTemplateVarCount(tpl) : 1; // fallback guess if metadata missing
+    const language = tpl?.language || 'en';
+
+    if (varCount > 1) {
+      showToast('Error', `This template needs ${varCount} variables — Send Message only supports 0 or 1. Use Campaigns for this template.`, true);
+      return;
+    }
+
     body = {
       messaging_product: 'whatsapp',
       to: phone,
       type: 'template',
       template: {
         name: tname,
-        language: { code: tname === 'hello_world' ? 'en_US' : 'en' },
-        components: tname !== 'hello_world' ? [{
+        language: { code: language },
+        components: varCount === 1 ? [{
           type: 'body',
           parameters: [{ type: 'text', text: cname }]
         }] : []
