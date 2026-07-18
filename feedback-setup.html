@@ -33,7 +33,15 @@
     width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:10px;
     padding:11px 14px; color:var(--text); font:inherit; font-size:14px; outline:none;
   }
-  input:focus { border-color:var(--accent); }
+  select {
+    width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:10px;
+    padding:11px 14px; color:var(--text); font:inherit; font-size:14px; outline:none;
+    appearance:none; -webkit-appearance:none;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%238888aa'/></svg>");
+    background-repeat:no-repeat; background-position:right 14px center;
+  }
+  select option { background:var(--surface2); color:var(--text); }
+  input:focus, select:focus { border-color:var(--accent); }
   .hint { font-size:11.5px; color:var(--text3); margin-top:6px; line-height:1.5; }
   .hint a { color:var(--accent); }
 
@@ -138,6 +146,19 @@
         "Ask for reviews" → copy the short link. It's included in the WhatsApp thank-you so guests can rate you
         on Google from their own phone.</div>
 
+      <label>Thank-you template <span style="text-transform:none;color:var(--text3)">(sent when a review link is set)</span></label>
+      <select id="tpl_review">
+        <option value="">Loading templates…</option>
+      </select>
+      <div class="hint">Must be an APPROVED Meta template with 3 body variables, in order: {{1}} customer name, {{2}} restaurant name, {{3}} review link.</div>
+
+      <label>Thank-you template <span style="text-transform:none;color:var(--text3)">(sent when no review link is set)</span></label>
+      <select id="tpl_no_review">
+        <option value="">Loading templates…</option>
+      </select>
+      <div class="hint">Must be an APPROVED Meta template with 2 body variables, in order: {{1}} customer name, {{2}} restaurant name.
+        Don't see your template? <a href="https://business.facebook.com/wa/manage/message-templates" target="_blank">create it on Meta</a>, then reopen this page.</div>
+
       <div class="toggle" onclick="document.getElementById('lucky').click()">
         <input type="checkbox" id="lucky" checked onclick="event.stopPropagation()">
         <span>Ask for date of birth (lucky draw &amp; birthday messages 🎂)</span>
@@ -183,16 +204,20 @@ const $ = id => document.getElementById(id);
 let bizId = null, logoUrl = null, color = '#b08d3e';
 let allForms = [];       // every form belonging to this business
 let currentFormId = null; // null = editing a brand-new, unsaved form
+let approvedTemplates = []; // this business's APPROVED Meta templates, for the pickers
+let sessionToken = null;
 
 // ---- auth gate + load ----
 (async () => {
   const { data: { session } } = await sb.auth.getSession();
   if (!session) return location.href = 'login.html';
+  sessionToken = session.access_token;
 
   const { data: prof } = await sb.from('profiles').select('business_id').eq('id', session.user.id).single();
   if (!prof?.business_id) return showMsg('No business linked to this account.', 'err');
   bizId = prof.business_id;
 
+  loadTemplates(); // fire-and-forget, populates the two selects when it lands
   await loadFormsList();
 
   if (allForms.length) {
@@ -229,6 +254,38 @@ function renderFormsList() {
 
 function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
 
+// ---- WhatsApp templates (for the thank-you message pickers) ----
+async function loadTemplates() {
+  const sels = [$('tpl_review'), $('tpl_no_review')];
+  try {
+    const r = await fetch('/api/templates', { headers: { Authorization: `Bearer ${sessionToken}` } });
+    const j = await r.json();
+    approvedTemplates = j.ok ? (j.templates || []).filter(t => (t.status || '').toUpperCase() === 'APPROVED') : [];
+  } catch (e) {
+    approvedTemplates = [];
+  }
+  populateTemplateSelects();
+}
+
+function populateTemplateSelects() {
+  const form = currentFormId ? allForms.find(f => f.id === currentFormId) : null;
+  const opts = (defaultName, savedValue) => {
+    let html = `<option value="">Use default (${escapeHtml(defaultName)})</option>`;
+    html += approvedTemplates.map(t =>
+      `<option value="${escapeHtml(t.name)}">${escapeHtml(t.name)} (${escapeHtml(t.language || '')})</option>`
+    ).join('');
+    // keep a saved-but-currently-unlisted template selectable, flagged, so it isn't silently lost
+    if (savedValue && !approvedTemplates.some(t => t.name === savedValue)) {
+      html += `<option value="${escapeHtml(savedValue)}">${escapeHtml(savedValue)} (saved — not found in approved templates)</option>`;
+    }
+    return html;
+  };
+  $('tpl_review').innerHTML = opts('feedback_thanks_google_review', form?.thankyou_template_review);
+  $('tpl_no_review').innerHTML = opts('feedback_thanks', form?.thankyou_template_no_review);
+  $('tpl_review').value = form?.thankyou_template_review || '';
+  $('tpl_no_review').value = form?.thankyou_template_no_review || '';
+}
+
 function selectForm(id) {
   const form = allForms.find(f => f.id === id);
   if (!form) return;
@@ -243,6 +300,7 @@ function selectForm(id) {
   $('logoprev').src = logoUrl || '';
   setColor(form.accent_color || '#b08d3e');
   $('deleteBtn').style.display = 'block';
+  populateTemplateSelects();
   showMsg('');
   refreshPreview(); refreshLink();
   renderFormsList();
@@ -257,6 +315,7 @@ function newForm() {
   setColor('#b08d3e');
   $('deleteBtn').style.display = 'none';
   $('linkbox').style.display = 'none'; $('qrwrap').style.display = 'none';
+  populateTemplateSelects();
   showMsg('');
   refreshPreview();
   renderFormsList();
@@ -328,6 +387,8 @@ $('save').addEventListener('click', async () => {
     business_id: bizId, slug, restaurant_name,
     logo_url: logoUrl, accent_color: color,
     google_review_url: $('greview').value.trim() || null,
+    thankyou_template_review: $('tpl_review').value || null,
+    thankyou_template_no_review: $('tpl_no_review').value || null,
     lucky_draw_enabled: $('lucky').checked,
     is_active: $('active').checked,
     updated_at: new Date().toISOString(),
