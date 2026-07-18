@@ -523,6 +523,23 @@
   .campaign-name { font-family: 'Syne', sans-serif; font-size: 14px; font-weight: 600; }
   .campaign-meta { font-size: 12px; color: var(--text2); margin-top: 3px; }
 
+  /* WHATSAPP-STYLE LIVE PREVIEW BUBBLE */
+  .wa-preview { background:#0b141a; border-radius:12px; padding:18px 14px; background-image:
+    linear-gradient(rgba(0,0,0,.08), rgba(0,0,0,.08)); }
+  .wa-bubble { background:#202c33; border-radius:8px 8px 8px 2px; padding:8px 10px 6px;
+    max-width:100%; font-size:13.5px; color:#e9edef; line-height:1.4; }
+  .wa-bubble .wa-hdr-img { background:#3a4750; height:110px; border-radius:6px; margin-bottom:6px;
+    display:flex; align-items:center; justify-content:center; color:#8696a0; font-size:12px; }
+  .wa-bubble .wa-hdr-text { font-weight:700; margin-bottom:4px; color:#fff; }
+  .wa-bubble .wa-body { white-space:pre-wrap; word-break:break-word; }
+  .wa-bubble .wa-ftr { color:#8696a0; font-size:11.5px; margin-top:6px; }
+  .wa-bubble .wa-time { text-align:right; font-size:10px; color:#8696a0; margin-top:4px; }
+  .wa-buttons { max-width:100%; margin-top:1px; }
+  .wa-btn { background:#202c33; text-align:center; color:#53bdeb; font-size:13px; padding:9px;
+    border-top:1px solid #2a3942; border-radius:0 0 8px 8px; cursor:default; }
+  .wa-btn:first-child { border-radius:0; }
+  .wa-empty-hint { color:#8696a0; font-size:12.5px; text-align:center; padding:20px 10px; }
+
   /* MODAL */
   .modal-overlay {
     position: fixed; inset: 0;
@@ -1543,6 +1560,13 @@
             ⚠️ Configure your API credentials in <strong style="color:var(--text)">Settings</strong> before sending messages.
           </div>
         </div>
+
+        <div class="card">
+          <div class="card-title">Live Preview</div>
+          <div class="wa-preview">
+            <div id="send-preview-bubble" class="wa-empty-hint">Choose a template to preview the message here.</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1910,6 +1934,18 @@
     </div>
     <div style="margin-top:16px">
       <button class="btn btn-outline" style="width:100%;justify-content:center" onclick="closeModal('modal-feedback-detail')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- TEMPLATE PREVIEW MODAL -->
+<div class="modal-overlay" id="modal-template-preview">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('modal-template-preview')">✕</button>
+    <div class="modal-title" id="tpl-preview-title">Template Preview</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:14px" id="tpl-preview-meta"></div>
+    <div class="wa-preview">
+      <div id="tpl-preview-bubble"></div>
     </div>
   </div>
 </div>
@@ -2407,8 +2443,56 @@ async function loadCampaignsFromSupabase() {
   }));
 }
 
+// ===== SHARED: HTML escaping + WhatsApp-style bubble renderer =====
+// Used by both the Templates page preview modal and the Send Message live preview,
+// so both show exactly what Meta's own template preview shows.
+function escHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, m => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[m]));
+}
+
+// components: the raw `components` array from Meta's template object.
+// valuesByIndex: { "1": "Ahmed", "2": "..." } — unset/blank indices are left as {{n}}.
+function renderWaBubble(components, valuesByIndex) {
+  valuesByIndex = valuesByIndex || {};
+  const find = type => (components || []).find(c => (c.type || '').toUpperCase() === type);
+  const header = find('HEADER');
+  const body = find('BODY');
+  const footer = find('FOOTER');
+  const buttonsComp = find('BUTTONS');
+
+  const fill = text => escHtml(text || '').replace(/\{\{\s*(\d+)\s*\}\}/g, (m, n) => {
+    const v = valuesByIndex[n];
+    return v && String(v).trim() ? escHtml(v) : m;
+  });
+
+  let html = '<div class="wa-bubble">';
+  if (header) {
+    const fmt = (header.format || 'TEXT').toUpperCase();
+    if (fmt === 'TEXT' && header.text) {
+      html += `<div class="wa-hdr-text">${fill(header.text)}</div>`;
+    } else if (fmt !== 'TEXT') {
+      html += `<div class="wa-hdr-img">[${fmt.charAt(0) + fmt.slice(1).toLowerCase()} header]</div>`;
+    }
+  }
+  html += `<div class="wa-body">${fill(body?.text || '')}</div>`;
+  if (footer?.text) html += `<div class="wa-ftr">${escHtml(footer.text)}</div>`;
+  html += `<div class="wa-time">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>`;
+  html += '</div>';
+
+  const btns = buttonsComp?.buttons || [];
+  if (btns.length) {
+    html += '<div class="wa-buttons">' + btns.map(b =>
+      `<div class="wa-btn">${escHtml(b.text || b.type || 'Button')}</div>`
+    ).join('') + '</div>';
+  }
+  return html;
+}
+
 // ===== TEMPLATES: LIVE FROM META =====
 let templatesLoaded = false;
+let allMetaTemplates = []; // last-fetched template list, for the preview modal
 async function loadTemplatesFromMeta(force) {
   if (templatesLoaded && !force) return;
   const grid = document.getElementById('templates-grid');
@@ -2438,6 +2522,7 @@ async function loadTemplatesFromMeta(force) {
 
   templatesLoaded = true;
   const templates = json.templates || [];
+  allMetaTemplates = templates;
   const createCard = `
     <div class="campaign-card" style="border-style:dashed;display:flex;align-items:center;justify-content:center;cursor:pointer" onclick="window.open('https://business.facebook.com/wa/manage/message-templates','_blank')">
       <div style="text-align:center;color:var(--text3)">
@@ -2470,8 +2555,8 @@ async function loadTemplatesFromMeta(force) {
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   }[m]));
 
-  grid.innerHTML = templates.map(t => `
-    <div class="campaign-card">
+  grid.innerHTML = templates.map((t, i) => `
+    <div class="campaign-card" style="cursor:pointer" onclick="openTemplatePreview(${i})" title="Click to preview">
       <div class="campaign-top">
         <div>
           <div class="campaign-name">${escapeHtml(t.name)}</div>
@@ -2482,6 +2567,17 @@ async function loadTemplatesFromMeta(force) {
       <div style="font-size:12px;color:var(--text2);line-height:1.5">"${escapeHtml(bodyPreview(t))}"</div>
     </div>
   `).join('') + createCard;
+}
+
+function openTemplatePreview(index) {
+  const t = allMetaTemplates[index];
+  if (!t) return;
+  document.getElementById('tpl-preview-title').textContent = t.name;
+  document.getElementById('tpl-preview-meta').textContent =
+    `${t.category || ''} • ${t.language || ''} • ${t.status || ''}`;
+  // No values typed here — shows the raw {{n}} placeholders, same as Meta's own preview
+  document.getElementById('tpl-preview-bubble').innerHTML = renderWaBubble(t.components, {});
+  openModal('modal-template-preview');
 }
 
 // ===== CAMPAIGNS: real broadcast engine =====
@@ -2750,7 +2846,13 @@ function updateSendTemplateHint() {
   const name = document.getElementById('send-template').value;
   const t = sendTemplates.find(t => t.name === name);
 
-  if (!t) { hintEl.textContent = ''; extraWrap.innerHTML = ''; labelEl.textContent = 'Customer Name (for {{1}} variable)'; return; }
+  if (!t) {
+    hintEl.textContent = '';
+    extraWrap.innerHTML = '';
+    labelEl.textContent = 'Customer Name (for {{1}} variable)';
+    renderSendPreview();
+    return;
+  }
 
   const n = sendTemplateVarCount(t);
 
@@ -2758,6 +2860,7 @@ function updateSendTemplateHint() {
     hintEl.textContent = 'This template has no body variables — the customer name field will be ignored.';
     labelEl.textContent = 'Customer Name (not used by this template)';
     extraWrap.innerHTML = '';
+    renderSendPreview();
     return;
   }
 
@@ -2776,7 +2879,35 @@ function updateSendTemplateHint() {
       </div>`;
   }
   extraWrap.innerHTML = html;
+  renderSendPreview();
 }
+
+// Reads whatever's currently in the customer-name field + any extra {{n}} inputs,
+// and re-renders the WhatsApp-style bubble to match — called on every keystroke.
+function renderSendPreview() {
+  const bubbleEl = document.getElementById('send-preview-bubble');
+  const name = document.getElementById('send-template').value;
+  const t = sendTemplates.find(t => t.name === name);
+  if (!t) {
+    bubbleEl.className = 'wa-empty-hint';
+    bubbleEl.textContent = 'Choose a template to preview the message here.';
+    return;
+  }
+  const values = { '1': document.getElementById('send-name').value };
+  document.querySelectorAll('.send-var-input').forEach(inp => {
+    values[inp.dataset.var] = inp.value;
+  });
+  bubbleEl.className = '';
+  bubbleEl.innerHTML = renderWaBubble(t.components, values);
+}
+
+// Live-update the preview as the customer types — send-name is static so it gets
+// its own listener; the {{2..n}} inputs are created dynamically, so a delegated
+// listener on their container catches all of them without re-binding each time.
+document.getElementById('send-name').addEventListener('input', renderSendPreview);
+document.getElementById('send-extra-vars').addEventListener('input', e => {
+  if (e.target.classList.contains('send-var-input')) renderSendPreview();
+});
 
 async function sendMessage() {
   const phone = document.getElementById('send-phone').value.trim();
