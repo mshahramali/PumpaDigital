@@ -150,13 +150,13 @@
       <select id="tpl_review">
         <option value="">Loading templates…</option>
       </select>
-      <div class="hint">Must be an APPROVED Meta template with 3 body variables, in order: {{1}} customer name, {{2}} restaurant name, {{3}} review link.</div>
+      <div class="hint" id="tpl_review_hint">Loading…</div>
 
       <label>Thank-you template <span style="text-transform:none;color:var(--text3)">(sent when no review link is set)</span></label>
       <select id="tpl_no_review">
         <option value="">Loading templates…</option>
       </select>
-      <div class="hint">Must be an APPROVED Meta template with 2 body variables, in order: {{1}} customer name, {{2}} restaurant name.
+      <div class="hint" id="tpl_no_review_hint">Loading…
         Don't see your template? <a href="https://business.facebook.com/wa/manage/message-templates" target="_blank">create it on Meta</a>, then reopen this page.</div>
 
       <div class="toggle" onclick="document.getElementById('lucky').click()">
@@ -284,7 +284,44 @@ function populateTemplateSelects() {
   $('tpl_no_review').innerHTML = opts('feedback_thanks', form?.thankyou_template_no_review);
   $('tpl_review').value = form?.thankyou_template_review || '';
   $('tpl_no_review').value = form?.thankyou_template_no_review || '';
+  updateTemplateHint('tpl_review');
+  updateTemplateHint('tpl_no_review');
 }
+
+// Count of {{n}} placeholders in a template's BODY component, straight from what
+// /api/templates returned — this is what actually gets sent, so the hint below
+// each picker should always describe the template that's actually selected.
+function templateVarCount(t) {
+  const body = (t.components || []).find(c => (c.type || '').toUpperCase() === 'BODY');
+  if (!body?.text) return 0;
+  const vars = new Set(body.text.match(/\{\{\s*\d+\s*\}\}/g) || []);
+  return vars.size;
+}
+
+function updateTemplateHint(selectId) {
+  const sel = $(selectId);
+  const hintEl = $(selectId + '_hint');
+  const val = sel.value;
+  const isNoReview = selectId === 'tpl_no_review';
+  const extra = isNoReview
+    ? ` Don't see your template? <a href="https://business.facebook.com/wa/manage/message-templates" target="_blank">create it on Meta</a>, then reopen this page.`
+    : '';
+
+  if (!val) {
+    hintEl.innerHTML = `Uses the default template — must be APPROVED on Meta.${extra}`;
+    return;
+  }
+  const t = approvedTemplates.find(t => t.name === val);
+  if (!t) {
+    hintEl.innerHTML = `This template wasn't found in your current approved list — check it still exists and is APPROVED on Meta.${extra}`;
+    return;
+  }
+  const n = templateVarCount(t);
+  hintEl.innerHTML = `This template has <b>${n}</b> body variable${n === 1 ? '' : 's'}. Values are filled in order: 1) customer name, 2) restaurant name${n >= 3 ? ', 3) review link' : ''}${n > 3 ? ' (extra variables will be left blank)' : ''}.${extra}`;
+}
+
+$('tpl_review').addEventListener('change', () => updateTemplateHint('tpl_review'));
+$('tpl_no_review').addEventListener('change', () => updateTemplateHint('tpl_no_review'));
 
 function selectForm(id) {
   const form = allForms.find(f => f.id === id);
