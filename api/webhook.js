@@ -7,6 +7,7 @@ const VERIFY_TOKEN = "pumpa_webhook_2026";
 const SUPABASE_URL = "https://dpeszhbdgxevlkrfllrc.supabase.co";
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const GRAPH = 'https://graph.facebook.com/v21.0';
 
 // ── AUTOMATIC ONBOARDING (webhook-driven) ─────────────────────────────
 // When a client completes Embedded Signup, Meta fires account_update with
@@ -135,6 +136,83 @@ async function getBusinessId(phoneNumberId) {
   } catch (e) { console.error('getBusinessId error:', e.message); return null; }
 }
 
+// Look up the WhatsApp access token for a business — same lookup order used by
+// templates.js / feedback-public.js, falling back to the shared platform token.
+async function getToken(businessId) {
+  if (!businessId) return WHATSAPP_TOKEN || null;
+  try {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/business_secrets?business_id=eq.${businessId}&select=*&limit=1`,
+      { headers: { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}` } }
+    );
+    const row = (await r.json())[0];
+    const t = row?.access_token || row?.whatsapp_access_token || row?.token;
+    if (t) return t;
+  } catch (e) { /* fall through */ }
+  try {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/businesses?id=eq.${businessId}&select=whatsapp_access_token&limit=1`,
+      { headers: { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}` } }
+    );
+    const row = (await r.json())[0];
+    if (row?.whatsapp_access_token) return row.whatsapp_access_token;
+  } catch (e) { /* fall through */ }
+  return WHATSAPP_TOKEN || null;
+}
+
+// Meta only gives back a short-lived, auth-walled URL for received media — it
+// expires in minutes and can't be embedded directly in the inbox. So: resolve
+// that URL, download the bytes now while the token's still valid, and re-host
+// them in our own public Supabase bucket (same bucket outgoing media already
+// uses), so the inbox can just show a normal <img>/<video>/link forever after.
+// Best-effort: any failure here just means the message shows as text-only,
+// never blocks the message from being saved.
+async function fetchAndStoreMedia(mediaId, token, mediaType) {
+  if (!mediaId || !token) return null;
+  try {
+    const metaRes = await fetch(`${GRAPH}/${mediaId}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const meta = await metaRes.json();
+    if (!meta.url) { console.error('media meta fetch failed:', JSON.stringify(meta).slice(0, 300)); return null; }
+
+    const fileRes = await fetch(meta.url, { headers: { 'Authorization': `Bearer ${token}` } });
+    if (!fileRes.ok) { console.error('media download failed:', fileRes.status); return null; }
+    const buffer = Buffer.from(await fileRes.arrayBuffer());
+
+    const mime = meta.mime_type || 'application/octet-stream';
+    const ext = (mime.split('/')[1] || 'bin').split(';')[0];
+    const fileName = `incoming/${mediaId}.${ext}`;
+
+    const upRes = await fetch(`${SUPABASE_URL}/storage/v1/object/whatsapp-media/${fileName}`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+        'Content-Type': mime, 'x-upsert': 'true'
+      },
+      body: buffer
+    });
+    if (!upRes.ok) { console.error('media bucket upload failed:', await upRes.text()); return null; }
+
+    return `${SUPABASE_URL}/storage/v1/object/public/whatsapp-media/${fileName}`;
+  } catch (e) {
+    console.error('fetchAndStoreMedia error:', e.message);
+    return null;
+  }
+}
+
+// Pull the media id + simplified type off an incoming WhatsApp message object,
+// if it has one. Returns null for text/location/button/etc.
+function mediaInfo(m) {
+  const t = m.type;
+  if (t === 'image') return { id: m.image?.id, type: 'image' };
+  if (t === 'video') return { id: m.video?.id, type: 'video' };
+  if (t === 'audio') return { id: m.audio?.id, type: 'audio' };
+  if (t === 'document') return { id: m.document?.id, type: 'document' };
+  if (t === 'sticker') return { id: m.sticker?.id, type: 'image' }; // render stickers as images
+  return null;
+}
+
 // Update a message's delivery status by its wa_message_id. Statuses can
 // arrive out of order (Meta doesn't guarantee sequencing), so we only ever
 // move FORWARD through sent -> delivered -> read, never backward, and never
@@ -168,7 +246,7 @@ async function updateMessageStatus(waMessageId, newStatus) {
 }
 
 // Insert a message row
-async function insertMessage({ businessId, phone, content, direction, phoneNumberId, waId }) {
+async function insertMessage({ businessId, phone, content, direction, phoneNumberId, waId, mediaUrl, mediaType }) {
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/messages`, {
       method: 'POST',
@@ -181,7 +259,9 @@ async function insertMessage({ businessId, phone, content, direction, phoneNumbe
         content: String(content || '').replace(/\n/g, ' ').replace(/\r/g, '').trim(),
         phone_number_id: phoneNumberId || null, phone: String(phone),
         status: direction === 'inbound' ? 'received' : 'sent',
-        wa_message_id: waId || null
+        wa_message_id: waId || null,
+        media_url: mediaUrl || null,
+        media_type: mediaType || null
       })
     });
     if (!res.ok) console.error('insertMessage error:', await res.text());
@@ -223,6 +303,7 @@ function messageToText(m) {
 // history: past chat threads synced right after onboarding
 async function handleHistory(value, phoneNumberId) {
   const businessId = await getBusinessId(phoneNumberId);
+  const token = await getToken(businessId); // same token covers every message below
   const businessPhone = value.metadata?.display_phone_number || null;
   const historyBlocks = value.history || [];
   for (const block of historyBlocks) {
@@ -232,10 +313,13 @@ async function handleHistory(value, phoneNumberId) {
       for (const m of thread.messages || []) {
         // direction: if the message is FROM the business number, it's outbound
         const fromBusiness = m.from && businessPhone && String(m.from).includes(String(businessPhone).replace(/\D/g,''));
+        const media = mediaInfo(m);
+        const mediaUrl = media ? await fetchAndStoreMedia(media.id, token, media.type) : null;
         await insertMessage({
           businessId, phone: userPhone, content: messageToText(m),
           direction: fromBusiness ? 'outbound' : 'inbound',
-          phoneNumberId, waId: m.id
+          phoneNumberId, waId: m.id,
+          mediaUrl, mediaType: media?.type
         });
       }
     }
@@ -246,12 +330,16 @@ async function handleHistory(value, phoneNumberId) {
 // smb_message_echoes: messages the business owner sends from their phone app
 async function handleEcho(value, phoneNumberId) {
   const businessId = await getBusinessId(phoneNumberId);
+  const token = await getToken(businessId);
   const echoes = value.message_echoes || value.messages || [];
   for (const m of echoes) {
     const userPhone = m.to || m.from; // echo of an outbound message → 'to' is the customer
+    const media = mediaInfo(m);
+    const mediaUrl = media ? await fetchAndStoreMedia(media.id, token, media.type) : null;
     await insertMessage({
       businessId, phone: userPhone, content: messageToText(m),
-      direction: 'outbound', phoneNumberId, waId: m.id
+      direction: 'outbound', phoneNumberId, waId: m.id,
+      mediaUrl, mediaType: media?.type
     });
   }
   console.log('Echo processed for phoneNumberId', phoneNumberId);
@@ -317,10 +405,13 @@ export default async function handler(req, res) {
               for (const message of value.messages) {
                 console.log(`New message from ${message.from}`);
                 const businessId = await getBusinessId(phoneNumberId);
+                const media = mediaInfo(message);
+                const mediaUrl = media ? await fetchAndStoreMedia(media.id, await getToken(businessId), media.type) : null;
                 await insertMessage({
                   businessId,
                   phone: message.from, content: messageToText(message),
-                  direction: 'inbound', phoneNumberId, waId: message.id
+                  direction: 'inbound', phoneNumberId, waId: message.id,
+                  mediaUrl, mediaType: media?.type
                 });
 
                 // Quick-reply button tap — check for the "Stop promotions" opt-out.
