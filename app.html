@@ -1202,6 +1202,10 @@
         <span class="icon">👥</span> Contacts
         <span class="nav-badge" id="contacts-badge">0</span>
       </div>
+      <div class="nav-item" onclick="showPage('reservations', this)">
+        <span class="icon">🍽️</span> Reservations
+        <span class="nav-badge" id="reservations-badge" style="display:none">0</span>
+      </div>
       <div class="nav-section">Campaigns</div>
       <div class="nav-item" onclick="showPage('campaigns', this)">
         <span class="icon">📢</span> Campaigns
@@ -1215,6 +1219,9 @@
       <div class="nav-section">Tools</div>
       <div class="nav-item" onclick="window.location.href='/feedback-setup.html'">
         <span class="icon">📱</span> Feedback Form
+      </div>
+      <div class="nav-item" onclick="window.location.href='/reservations-setup.html'">
+        <span class="icon">📅</span> Reservation Setup
       </div>
       <div class="nav-item" onclick="showPage('reports', this)">
         <span class="icon">📈</span> Reports
@@ -1440,6 +1447,60 @@
             <button class="btn btn-danger btn-sm" onclick="bulkDelete()">🗑 Delete Selected</button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- RESERVATIONS PAGE -->
+    <div class="page" id="page-reservations">
+      <div class="topbar">
+        <div class="page-header" style="margin:0">
+          <div class="page-title">Reservations</div>
+          <div class="page-sub">Manage table bookings</div>
+        </div>
+        <div class="topbar-right">
+          <a class="btn btn-outline btn-sm" href="/reservations-setup.html" style="text-decoration:none">⚙ Booking Page Setup</a>
+          <button class="btn btn-primary btn-sm" onclick="openAddReservation()">+ Add Reservation</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+          <input type="date" class="form-input" id="resv-date-filter" style="max-width:180px" onchange="loadReservations()">
+          <select class="form-select" id="resv-status-filter" style="max-width:170px" onchange="loadReservations()">
+            <option value="">All statuses</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="seated">Seated</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+            <option value="no_show">No-show</option>
+          </select>
+          <button class="btn btn-outline btn-sm" onclick="resvShowAllDates()">Show all upcoming</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Time</th>
+                <th>Guest</th>
+                <th>Phone</th>
+                <th>Party</th>
+                <th>Source</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="reservations-table">
+              <tr><td colspan="8">
+                <div class="empty-state">
+                  <div class="empty-icon">🍽️</div>
+                  <p>No reservations yet.</p>
+                </div>
+              </td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="margin-top:16px;font-size:12px;color:var(--text2)" id="reservations-count">0 reservations</div>
       </div>
     </div>
 
@@ -1800,6 +1861,53 @@
 </div>
 
 <!-- ADD CONTACT MODAL -->
+<div class="modal-overlay" id="modal-reservation">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('modal-reservation')">✕</button>
+    <div class="modal-title">Add Reservation</div>
+    <div class="form-group">
+      <label class="form-label">Guest Name *</label>
+      <input type="text" class="form-input" id="r-name" placeholder="Ahmed Khan">
+    </div>
+    <div class="form-group">
+      <label class="form-label">WhatsApp Number * (with country code)</label>
+      <input type="text" class="form-input" id="r-phone" placeholder="923001234567">
+    </div>
+    <div style="display:flex;gap:10px">
+      <div class="form-group" style="flex:1">
+        <label class="form-label">Date *</label>
+        <input type="date" class="form-input" id="r-date">
+      </div>
+      <div class="form-group" style="flex:1">
+        <label class="form-label">Time *</label>
+        <input type="time" class="form-input" id="r-time">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Party Size *</label>
+      <input type="number" class="form-input" id="r-party" min="1" value="2">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Booking Page <span style="text-transform:none;color:var(--text2)">(links this to capacity tracking + confirmation template)</span></label>
+      <select class="form-select" id="r-page">
+        <option value="">No booking page — unlinked (no capacity check)</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Notes</label>
+      <textarea class="form-input" id="r-notes" placeholder="Window seat, birthday, allergies…" style="min-height:60px;resize:vertical"></textarea>
+    </div>
+    <div class="toggle" style="display:flex;align-items:center;gap:10px;margin-top:4px;cursor:pointer" onclick="document.getElementById('r-send-confirm').click()">
+      <input type="checkbox" id="r-send-confirm" checked style="accent-color:var(--accent);width:17px;height:17px" onclick="event.stopPropagation()">
+      <span style="font-size:14px">Send WhatsApp confirmation now</span>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:14px">
+      <button class="btn btn-primary" style="flex:1;justify-content:center" id="r-save-btn" onclick="saveReservation()">Add Reservation</button>
+      <button class="btn btn-outline" onclick="closeModal('modal-reservation')">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-contact">
   <div class="modal">
     <button class="modal-close" onclick="closeModal('modal-contact')">✕</button>
@@ -2085,6 +2193,7 @@ function showPage(name, el) {
   if (name === 'templates') loadTemplatesFromMeta();
   if (name === 'reports') loadReports();
   if (name === 'campaigns') loadCampaigns();
+  if (name === 'reservations') loadReservations();
   const main = document.querySelector('.main');
   const mobile = window.innerWidth <= 768;
   if (name === 'inbox') {
@@ -2578,6 +2687,190 @@ function openTemplatePreview(index) {
   // No values typed here — shows the raw {{n}} placeholders, same as Meta's own preview
   document.getElementById('tpl-preview-bubble').innerHTML = renderWaBubble(t.components, {});
   openModal('modal-template-preview');
+}
+
+// ===== RESERVATIONS =====
+let reservationPages = [];   // this business's booking pages, for the modal's page picker
+let allReservations = [];
+
+async function resvAuthHeader() {
+  const { data: { session } } = await sb.auth.getSession();
+  return session ? { Authorization: `Bearer ${session.access_token}` } : null;
+}
+
+async function loadReservations() {
+  const tbody = document.getElementById('reservations-table');
+  tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><p>Loading…</p></div></td></tr>';
+
+  const headers = await resvAuthHeader();
+  if (!headers) { tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><p>Not logged in.</p></div></td></tr>'; return; }
+
+  const dateFilter = document.getElementById('resv-date-filter').value;
+  const statusFilter = document.getElementById('resv-status-filter').value;
+  const params = new URLSearchParams();
+  if (dateFilter) { params.set('from', dateFilter); params.set('to', dateFilter); }
+  if (statusFilter) params.set('status', statusFilter);
+
+  try {
+    const r = await fetch('/api/reservations?' + params.toString(), { headers });
+    const j = await r.json();
+    allReservations = j.ok ? (j.reservations || []) : [];
+  } catch (e) {
+    allReservations = [];
+  }
+  renderReservationsTable();
+
+  // badge = confirmed reservations for today, at a glance
+  const today = new Date().toISOString().slice(0, 10);
+  const todayCount = allReservations.filter(r => r.reservation_date === today && r.status === 'confirmed').length;
+  const badge = document.getElementById('reservations-badge');
+  if (todayCount > 0) { badge.style.display = 'inline-block'; badge.textContent = todayCount; }
+  else badge.style.display = 'none';
+}
+
+function resvShowAllDates() {
+  document.getElementById('resv-date-filter').value = '';
+  loadReservations();
+}
+
+function resvStatusBadge(status) {
+  const map = {
+    confirmed: ['badge-blue', 'Confirmed'], seated: ['badge-green', 'Seated'],
+    completed: ['badge-green', 'Completed'], cancelled: ['badge-red', 'Cancelled'],
+    no_show: ['badge-red', 'No-show'], pending: ['badge-yellow', 'Pending'],
+  };
+  const [cls, label] = map[status] || ['badge-yellow', status || 'Unknown'];
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+
+function renderReservationsTable() {
+  const tbody = document.getElementById('reservations-table');
+  document.getElementById('reservations-count').textContent = `${allReservations.length} reservation${allReservations.length === 1 ? '' : 's'}`;
+
+  if (!allReservations.length) {
+    tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">🍽️</div><p>No reservations for this filter.</p></div></td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = allReservations.map(r => {
+    const isActive = r.status !== 'cancelled' && r.status !== 'completed' && r.status !== 'no_show';
+    const actions = isActive ? `
+      ${r.status !== 'seated' ? `<button class="btn btn-outline btn-sm" onclick="resvSetStatus('${r.id}','seated')">Seat</button>` : ''}
+      <button class="btn btn-outline btn-sm" onclick="resvSetStatus('${r.id}','completed')">Complete</button>
+      <button class="btn btn-outline btn-sm" onclick="resvSetStatus('${r.id}','no_show')">No-show</button>
+      <button class="btn btn-danger btn-sm" onclick="resvCancel('${r.id}')">Cancel</button>
+    ` : `<span style="color:var(--text3);font-size:12px">—</span>`;
+
+    return `<tr>
+      <td>${escHtml(r.reservation_date)}</td>
+      <td>${escHtml(String(r.reservation_time).slice(0,5))}</td>
+      <td>${escHtml(r.customer_name)}</td>
+      <td>${escHtml(r.customer_phone)}</td>
+      <td>${r.party_size}</td>
+      <td style="font-size:12px;color:var(--text2)">${r.source === 'public_form' ? 'Online' : 'Manual'}</td>
+      <td>${resvStatusBadge(r.status)}</td>
+      <td><div style="display:flex;gap:6px;flex-wrap:wrap">${actions}</div></td>
+    </tr>`;
+  }).join('');
+}
+
+async function resvSetStatus(id, status) {
+  const headers = await resvAuthHeader();
+  if (!headers) return;
+  const r = await fetch('/api/reservations?id=' + id, {
+    method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+  const j = await r.json();
+  if (!j.ok) return showToast('Error', j.error || 'Could not update reservation', true);
+  showToast('Updated', 'Reservation marked as ' + status.replace('_',' '));
+  loadReservations();
+}
+
+async function resvCancel(id) {
+  if (!confirm('Cancel this reservation? This can\'t be undone.')) return;
+  const headers = await resvAuthHeader();
+  if (!headers) return;
+  const r = await fetch('/api/reservations?id=' + id, { method: 'DELETE', headers });
+  const j = await r.json();
+  if (!j.ok) return showToast('Error', j.error || 'Could not cancel reservation', true);
+  showToast('Cancelled', 'Reservation cancelled');
+  loadReservations();
+}
+
+async function openAddReservation() {
+  document.getElementById('r-name').value = '';
+  document.getElementById('r-phone').value = '';
+  document.getElementById('r-date').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('r-time').value = '';
+  document.getElementById('r-party').value = 2;
+  document.getElementById('r-notes').value = '';
+  document.getElementById('r-send-confirm').checked = true;
+
+  const sel = document.getElementById('r-page');
+  sel.innerHTML = '<option value="">Loading booking pages…</option>';
+  const headers = await resvAuthHeader();
+  if (headers) {
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      const { data: prof } = await sb.from('profiles').select('business_id').eq('id', session.user.id).single();
+      const { data: pages } = await sb.from('reservation_pages').select('id,restaurant_name').eq('business_id', prof.business_id);
+      reservationPages = pages || [];
+    } catch (e) { reservationPages = []; }
+  }
+  sel.innerHTML = '<option value="">No booking page — unlinked (no capacity check)</option>' +
+    reservationPages.map(p => `<option value="${p.id}">${escHtml(p.restaurant_name)}</option>`).join('');
+
+  openModal('modal-reservation');
+}
+
+async function saveReservation(force) {
+  const name = document.getElementById('r-name').value.trim();
+  const phone = document.getElementById('r-phone').value.replace(/[^0-9]/g, '');
+  const date = document.getElementById('r-date').value;
+  const time = document.getElementById('r-time').value;
+  const party = parseInt(document.getElementById('r-party').value, 10);
+  const pageId = document.getElementById('r-page').value;
+  const notes = document.getElementById('r-notes').value.trim();
+  const sendConfirm = document.getElementById('r-send-confirm').checked;
+
+  if (!name || !phone || !date || !time || !party) {
+    return showToast('Error', 'Name, phone, date, time and party size are required', true);
+  }
+
+  const btn = document.getElementById('r-save-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+
+  const headers = await resvAuthHeader();
+  if (!headers) { btn.disabled = false; btn.textContent = 'Add Reservation'; return; }
+
+  try {
+    const r = await fetch('/api/reservations', {
+      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customer_name: name, customer_phone: phone,
+        reservation_date: date, reservation_time: time, party_size: party,
+        reservation_page_id: pageId || null, notes,
+        send_confirmation: sendConfirm, force: !!force,
+      }),
+    });
+    const j = await r.json();
+
+    if (r.status === 409 && j.error === 'over_capacity') {
+      btn.disabled = false; btn.textContent = 'Add Reservation';
+      if (confirm(j.message + '\n\nAdd it anyway?')) return saveReservation(true);
+      return;
+    }
+    if (!j.ok) { btn.disabled = false; btn.textContent = 'Add Reservation'; return showToast('Error', j.error || 'Could not save reservation', true); }
+
+    showToast('Reservation added', j.whatsapp_sent ? 'Confirmation sent on WhatsApp ✓' : 'Saved (no confirmation sent)');
+    closeModal('modal-reservation');
+    loadReservations();
+  } catch (e) {
+    showToast('Error', 'Network error — please try again', true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Add Reservation';
+  }
 }
 
 // ===== CAMPAIGNS: real broadcast engine =====
@@ -3111,7 +3404,7 @@ async function testConnection() {
   el.style.display = 'block';
   el.innerHTML = '<span style="color:var(--text2)">Testing connection...</span>';
   try {
-    const data = await waApi('/api/test-connection', {});
+    const data = await waApi('/api/send-message?action=test', {});
     if (data.id) {
       el.innerHTML = `<span style="color:var(--accent)">✅ Connected! Number: ${data.display_phone_number || data.id}</span>`;
       showToast('Connected!', 'WhatsApp API is working');

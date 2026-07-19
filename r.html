@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<meta name="robots" content="noindex" />
+<title>Reserve a Table</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Archivo+Black&family=Caveat:wght@600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --accent: #b08d3e;
+    --accent-ink: #ffffff;
+    --paper: #faf7f1;
+    --paper-edge: #efe9dd;
+    --ink: #1c1a17;
+    --ink-2: #6b665d;
+    --ink-3: #a39d92;
+    --table: #22271f;
+    --bad: #c0392b;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html { height:100%; }
+  body {
+    font-family:'Archivo',system-ui,sans-serif; color:var(--ink);
+    background:
+      radial-gradient(1100px 500px at 15% -10%, rgba(255,255,255,.05), transparent 60%),
+      radial-gradient(900px 600px at 110% 110%, rgba(255,255,255,.04), transparent 60%),
+      var(--table);
+    display:grid; place-items:center; padding:22px 14px;
+    min-height:100vh; min-height:100dvh;
+  }
+
+  .card {
+    position:relative; width:min(640px,100%);
+    background:linear-gradient(178deg, var(--paper) 82%, var(--paper-edge));
+    border-radius:6px; padding:36px 34px 30px;
+    box-shadow:0 30px 60px -18px rgba(0,0,0,.55), 0 2px 0 rgba(255,255,255,.06) inset;
+    overflow:hidden;
+  }
+  .card::after {
+    content:''; position:absolute; inset:0;
+    background:var(--wm,none) center 42%/58% no-repeat;
+    opacity:.05; pointer-events:none; filter:grayscale(1);
+  }
+  .card > * { position:relative; z-index:1; }
+
+  .head { text-align:center; margin-bottom:10px; }
+  .logo {
+    width:66px; height:66px; border-radius:50%; object-fit:cover;
+    border:2px solid var(--paper-edge); box-shadow:0 3px 10px rgba(0,0,0,.12);
+    margin-bottom:10px; background:#fff;
+  }
+  h1 {
+    font-family:'Archivo Black',sans-serif; font-size:clamp(21px,4.5vw,27px);
+    letter-spacing:.14em; text-transform:uppercase;
+  }
+  .script {
+    font-family:'Caveat',cursive; font-size:clamp(19px,4vw,23px);
+    color:var(--ink-2); margin-top:2px;
+  }
+  .hrs { font-size:12px; color:var(--ink-3); margin-top:6px; }
+  .rule { height:1.5px; background:var(--ink); opacity:.85; width:72px; margin:12px auto 0; }
+
+  .progress { display:flex; gap:7px; justify-content:center; margin:16px 0 20px; }
+  .progress i { width:34px; height:4px; border-radius:2px; background:var(--paper-edge); transition:background .3s; }
+  .progress i.on { background:var(--accent); }
+
+  .step { display:none; animation:in .3s ease; }
+  .step.on { display:block; }
+  @keyframes in { from { opacity:0; transform:translateX(14px);} to { opacity:1; transform:none;} }
+
+  .q { font-size:15px; font-weight:700; margin:18px 0 9px; }
+  .q small { font-weight:500; color:var(--ink-3); }
+
+  .field label { display:block; font-size:11px; letter-spacing:.09em; text-transform:uppercase;
+                 color:var(--ink-2); margin:14px 0 6px; font-weight:700; }
+  .field label b { color:var(--bad); }
+  input[type=text], input[type=date], input[type=tel], textarea {
+    width:100%; background:#fff; border:1.5px solid var(--paper-edge); border-radius:10px;
+    padding:12px 13px; font:inherit; font-size:15px; outline:none; transition:border .15s;
+  }
+  input:focus, textarea:focus { border-color:var(--accent); }
+  textarea { min-height:70px; resize:none; }
+
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:480px){ .grid2 { grid-template-columns:1fr; } }
+
+  .partyrow { display:flex; align-items:center; gap:14px; background:#fff; border:1.5px solid var(--paper-edge);
+              border-radius:10px; padding:10px 14px; }
+  .partybtn { width:34px; height:34px; border-radius:50%; border:1.5px solid var(--paper-edge); background:#fff;
+              font-size:18px; font-weight:700; color:var(--ink); cursor:pointer; display:grid; place-items:center; }
+  .partyval { flex:1; text-align:center; font-size:17px; font-weight:700; }
+
+  .slotgrid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:4px; max-height:260px; overflow-y:auto; }
+  @media (max-width:480px){ .slotgrid { grid-template-columns:repeat(2,1fr); } }
+  .slot {
+    padding:11px 6px; border:1.5px solid var(--paper-edge); border-radius:9px;
+    background:#fff; cursor:pointer; user-select:none; text-align:center;
+    font-size:13px; font-weight:600; color:var(--ink-2); transition:all .15s;
+  }
+  .slot.sel { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); transform:scale(1.03); }
+  .slot.full { opacity:.4; text-decoration:line-through; cursor:not-allowed; background:var(--paper-edge); }
+  .slotempty { grid-column:1/-1; text-align:center; color:var(--ink-3); font-size:13.5px; padding:20px 0; }
+
+  .hint { font-size:11.5px; color:var(--ink-3); margin-top:5px; }
+
+  .nav { display:flex; gap:10px; margin-top:24px; }
+  .btn {
+    flex:1; padding:14px; border:0; border-radius:11px; font:inherit; font-size:15px; font-weight:700;
+    cursor:pointer; letter-spacing:.02em; transition:transform .1s, opacity .15s;
+  }
+  .btn:active { transform:scale(.985); }
+  .btn.next { background:var(--accent); color:var(--accent-ink); }
+  .btn.back { flex:0 0 96px; background:transparent; border:1.5px solid var(--paper-edge); color:var(--ink-2); }
+  .btn[disabled] { opacity:.5; cursor:not-allowed; }
+  .err { color:var(--bad); font-size:13px; text-align:center; margin-top:12px; min-height:17px; font-weight:600; }
+
+  .done { text-align:center; padding:26px 4px 10px; display:none; }
+  .done.on { display:block; animation:in .35s ease; }
+  .tick { width:76px; height:76px; border-radius:50%; background:var(--accent); color:var(--accent-ink);
+          font-size:38px; display:grid; place-items:center; margin:0 auto 16px; }
+  .done h2 { font-family:'Caveat',cursive; font-size:34px; }
+  .done p { color:var(--ink-2); font-size:15px; margin-top:8px; line-height:1.55; }
+  .donesummary { margin-top:18px; background:rgba(0,0,0,.035); border-radius:10px; padding:14px; text-align:left; font-size:13.5px; }
+  .donesummary div { display:flex; justify-content:space-between; padding:3px 0; }
+  .donesummary b { color:var(--ink); }
+
+  .powered { text-align:center; font-size:10.5px; letter-spacing:.08em; color:var(--ink-3);
+             margin-top:20px; text-transform:uppercase; }
+  .powered b { color:var(--ink-2); }
+
+  .loading, .offline { color:#cfd4c9; text-align:center; font-size:15px; }
+</style>
+</head>
+<body>
+
+<div class="loading" id="loading">Loading…</div>
+
+<div class="card" id="card" style="display:none">
+  <div class="head">
+    <img class="logo" id="logo" alt="" style="display:none">
+    <h1>Reserve a Table</h1>
+    <div class="script" id="script">Book your table with us</div>
+    <div class="hrs" id="hrs"></div>
+    <div class="rule"></div>
+  </div>
+
+  <div class="progress" id="progress"><i class="on"></i><i></i><i></i></div>
+
+  <!-- STEP 1 — date + party size -->
+  <div class="step on" data-step="1">
+    <div class="field"><label>Date <b>*</b></label><input id="date" type="date"></div>
+    <div class="q">How many guests?</div>
+    <div class="partyrow">
+      <div class="partybtn" id="partyminus">−</div>
+      <div class="partyval" id="partyval">2</div>
+      <div class="partybtn" id="partyplus">+</div>
+    </div>
+    <div class="hint" id="partyhint"></div>
+  </div>
+
+  <!-- STEP 2 — time slot -->
+  <div class="step" data-step="2">
+    <div class="q">Pick a time <small id="dateecho"></small></div>
+    <div class="slotgrid" id="slotgrid"><div class="slotempty">Loading times…</div></div>
+  </div>
+
+  <!-- STEP 3 — contact -->
+  <div class="step" data-step="3">
+    <div class="q" style="margin-top:4px">Almost done — we'll confirm on WhatsApp 💬</div>
+    <div class="grid2">
+      <div class="field"><label>Full name <b>*</b></label><input id="name" autocomplete="off"></div>
+      <div class="field"><label>WhatsApp number <b>*</b></label><input id="phone" inputmode="tel" placeholder="03XX XXXXXXX" autocomplete="off"></div>
+    </div>
+    <div class="field"><label>Special requests <small>(optional)</small></label><textarea id="notes" placeholder="Window seat, birthday, allergies…"></textarea></div>
+  </div>
+
+  <!-- SUCCESS -->
+  <div class="done" id="done">
+    <div class="tick">✓</div>
+    <h2 id="done_title">You're booked!</h2>
+    <p id="done_msg">We've sent your confirmation on WhatsApp.</p>
+    <div class="donesummary" id="done_summary"></div>
+  </div>
+
+  <div class="nav" id="nav">
+    <button class="btn back" id="back" style="visibility:hidden">Back</button>
+    <button class="btn next" id="next">Next →</button>
+  </div>
+  <div class="err" id="err"></div>
+
+  <div class="powered">Powered by <b>PUMPA</b></div>
+</div>
+
+<script>
+const state = { step:1, date:null, party:2, time:null, page:null, slots:[] };
+const $ = id => document.getElementById(id);
+
+const slug = new URLSearchParams(location.search).get('r');
+(async () => {
+  if (!slug) return $('loading').textContent = 'Booking link is incomplete.';
+  try {
+    const r = await fetch('/api/reservations?public=1&slug=' + encodeURIComponent(slug));
+    const j = await r.json();
+    if (!r.ok || !j.ok) return $('loading').textContent = 'This booking page is not available.';
+    state.page = j.page;
+    applyBranding(j.page);
+    setupDateField(j.page);
+    $('loading').style.display = 'none';
+    $('card').style.display = 'block';
+  } catch { $('loading').textContent = 'Could not load. Check your connection.'; }
+})();
+
+function applyBranding(p){
+  document.title = 'Reserve a Table — ' + p.restaurant_name;
+  $('script').textContent = 'Book your table at ' + p.restaurant_name;
+  $('hrs').textContent = to12h(p.opening_time) + ' – ' + to12h(p.closing_time);
+  if (p.accent_color) {
+    document.documentElement.style.setProperty('--accent', p.accent_color);
+    document.documentElement.style.setProperty('--accent-ink', contrastInk(p.accent_color));
+  }
+  if (p.logo_url) {
+    const l = $('logo'); l.src = p.logo_url; l.style.display = 'inline-block';
+    $('card').style.setProperty('--wm', `url("${p.logo_url}")`);
+  }
+  state.party = p.min_party_size || 2;
+  $('partyval').textContent = state.party;
+  $('partyhint').textContent = `Between ${p.min_party_size} and ${p.max_party_size} guests. Larger groups — please call us.`;
+}
+function to12h(t){
+  if (!t) return '';
+  const [h,m] = String(t).slice(0,5).split(':').map(Number);
+  const period = h>=12?'PM':'AM'; const h12 = h%12===0?12:h%12;
+  return `${h12}:${String(m).padStart(2,'0')} ${period}`;
+}
+function contrastInk(hex){
+  const n = hex.replace('#',''); if (n.length < 6) return '#fff';
+  const r=parseInt(n.slice(0,2),16), g=parseInt(n.slice(2,4),16), b=parseInt(n.slice(4,6),16);
+  return (0.299*r + 0.587*g + 0.114*b) > 160 ? '#1c1a17' : '#ffffff';
+}
+
+function setupDateField(p){
+  const today = new Date();
+  const min = today.toISOString().slice(0,10);
+  const maxDate = new Date(today); maxDate.setDate(maxDate.getDate() + (p.advance_booking_days || 30));
+  $('date').min = min; $('date').max = maxDate.toISOString().slice(0,10);
+  $('date').value = min;
+  state.date = min;
+}
+$('date').addEventListener('change', e => { state.date = e.target.value; });
+
+$('partyminus').onclick = () => setParty(state.party - 1);
+$('partyplus').onclick = () => setParty(state.party + 1);
+function setParty(n){
+  const p = state.page;
+  n = Math.max(p.min_party_size || 1, Math.min(p.max_party_size || 20, n));
+  state.party = n; $('partyval').textContent = n;
+}
+
+// ---------- wizard ----------
+function show(n){
+  state.step = n;
+  document.querySelectorAll('.step').forEach(s=>s.classList.toggle('on', +s.dataset.step===n));
+  document.querySelectorAll('#progress i').forEach((d,i)=>d.classList.toggle('on', i < n));
+  $('back').style.visibility = n===1 ? 'hidden' : 'visible';
+  $('next').textContent = n===3 ? 'Confirm Booking ✓' : 'Next →';
+  $('err').textContent = '';
+}
+$('back').onclick = () => show(state.step - 1);
+$('next').onclick = async () => {
+  if (state.step===1){
+    if (!state.date) return $('err').textContent = 'Please choose a date.';
+    await loadSlots();
+    return show(2);
+  }
+  if (state.step===2){
+    if (!state.time) return $('err').textContent = 'Please pick a time.';
+    return show(3);
+  }
+  submit();
+};
+
+async function loadSlots(){
+  $('dateecho').textContent = '— ' + niceDate(state.date);
+  $('slotgrid').innerHTML = '<div class="slotempty">Loading times…</div>';
+  state.time = null;
+  try {
+    const r = await fetch(`/api/reservations?public=1&slug=${encodeURIComponent(slug)}&date=${state.date}`);
+    const j = await r.json();
+    state.slots = (j.ok && j.slots) || [];
+    renderSlots();
+  } catch {
+    $('slotgrid').innerHTML = '<div class="slotempty">Could not load times — try again.</div>';
+  }
+}
+function niceDate(d){
+  try { return new Date(d+'T00:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}); }
+  catch { return d; }
+}
+function renderSlots(){
+  if (!state.slots.length) { $('slotgrid').innerHTML = '<div class="slotempty">We\'re closed that day — please pick another date.</div>'; return; }
+  $('slotgrid').innerHTML = state.slots.map(s => `
+    <div class="slot ${s.available ? '' : 'full'} ${state.time===s.time?'sel':''}" data-t="${s.time}">${s.label}</div>
+  `).join('');
+  document.querySelectorAll('.slot').forEach(el => el.addEventListener('click', () => {
+    const s = state.slots.find(x => x.time === el.dataset.t);
+    if (!s || !s.available) return;
+    state.time = s.time;
+    document.querySelectorAll('.slot').forEach(x=>x.classList.remove('sel'));
+    el.classList.add('sel');
+  }));
+}
+
+function normPhone(raw){
+  let d = raw.replace(/[^0-9]/g,'');
+  if (d.startsWith('0092')) d = d.slice(2);
+  if (d.startsWith('0')) d = '92' + d.slice(1);
+  if (!d.startsWith('92') && d.length === 10) d = '92' + d;
+  return /^92\d{10}$/.test(d) ? d : null;
+}
+
+async function submit(){
+  const name = $('name').value.trim();
+  const phone = normPhone($('phone').value);
+  if (!name)  return $('err').textContent = 'Please enter your name.';
+  if (!phone) return $('err').textContent = 'Please enter a valid Pakistani WhatsApp number.';
+
+  const btn = $('next'); btn.disabled = true; btn.textContent = 'Booking…';
+  const payload = {
+    slug, date: state.date, time: state.time, party_size: state.party,
+    name, phone, notes: $('notes').value.trim(),
+  };
+  try {
+    const r = await fetch('/api/reservations?public=1', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+    });
+    const j = await r.json();
+    if (!r.ok || !j.ok) throw new Error(j.error || 'failed');
+    document.querySelectorAll('.step').forEach(s=>s.classList.remove('on'));
+    $('nav').style.display = 'none'; $('progress').style.display = 'none';
+    $('done_title').textContent = 'You\'re booked, ' + name.split(' ')[0] + '!';
+    if (!j.whatsapp_sent) $('done_msg').textContent = 'Your reservation is confirmed. See you then!';
+    $('done_summary').innerHTML = `
+      <div><span>Date</span><b>${niceDate(state.date)}</b></div>
+      <div><span>Time</span><b>${to12h(state.time)}</b></div>
+      <div><span>Party size</span><b>${state.party} guest${state.party>1?'s':''}</b></div>`;
+    $('done').classList.add('on');
+  } catch (e) {
+    btn.disabled = false; btn.textContent = 'Confirm Booking ✓';
+    $('err').textContent = e.message && e.message !== 'failed' ? e.message : 'Could not book — please try again.';
+  }
+}
+</script>
+</body>
+</html>
