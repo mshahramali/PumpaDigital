@@ -3499,16 +3499,24 @@ async function inboxFetchFromSheet() {
     const { data: profile } = await sb.from('profiles').select('business_id, role').single();
     if (!profile) return;
 
-    let query = sb.from('messages').select('*').order('created_at', { ascending: true });
+    // NOTE: Supabase/PostgREST silently caps unbounded queries at 1000 rows.
+    // Ordering ascending with no limit meant high-volume businesses only ever
+    // got their OLDEST 1000 messages, never reaching recent ones — the inbox
+    // looked "frozen" on whatever day row #1000 happened to land on. Fetching
+    // descending (newest first) + an explicit limit, then reversing in JS,
+    // guarantees we always see the most recent activity regardless of how
+    // large the table has grown.
+    let query = sb.from('messages').select('*').order('created_at', { ascending: false }).limit(2000);
 
     if (profile.role !== 'admin') {
       if (!profile.business_id) return;
       query = query.eq('business_id', profile.business_id);
     }
 
-    const { data: messages, error } = await query;
+    const { data: messagesDesc, error } = await query;
     if (error) { console.error('Supabase fetch error:', error); return; }
-    if (!messages || messages.length === 0) return;
+    if (!messagesDesc || messagesDesc.length === 0) return;
+    const messages = messagesDesc.slice().reverse();
 
     const newConvs = {};
     messages.forEach(row => {
